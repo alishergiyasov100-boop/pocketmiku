@@ -24,6 +24,19 @@
 <canvas id="c"></canvas>
 <div id="err" style="display:none"></div>
 
+<script>
+// module load failures не триггерят window.onerror — ловим вручную
+function _showErrEarly(msg) {
+  const e = document.getElementById('err');
+  if (e) { e.style.display = 'block'; e.textContent = msg; }
+  if (window.MikuBridge) window.MikuBridge.onError(String(msg));
+}
+window.addEventListener('error', (ev) => {
+  if (ev.target && (ev.target.tagName === 'SCRIPT' || ev.target.tagName === 'LINK')) {
+    _showErrEarly('script load fail: ' + (ev.target.src || ev.target.href));
+  }
+}, true);
+</script>
 <script type="module">
 import * as THREE from 'three';
 import { GLTFLoader } from './GLTFLoader.js';

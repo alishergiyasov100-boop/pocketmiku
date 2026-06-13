@@ -23,8 +23,8 @@ import java.io.ByteArrayInputStream
  * это валидный origin, ESM работает.
  *
  * Маршруты:
- *   /assets/webview/*   → src/main/assets/webview/*  (через AssetsPathHandler)
- *   /assets/vrm/miku.vrm → src/main/assets/vrm/miku4.vrm (ручной перехват)
+ *   /assets/webview/...   ← src/main/assets/webview/...  (AssetsPathHandler)
+ *   /assets/vrm/miku.vrm  ← src/main/assets/vrm/miku4.vrm (ручной перехват)
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
