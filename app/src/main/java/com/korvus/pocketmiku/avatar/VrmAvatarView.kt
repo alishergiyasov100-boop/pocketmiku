@@ -40,7 +40,7 @@ fun VrmAvatarView(
                 settings.allowContentAccess = true
                 settings.mediaPlaybackRequiresUserGesture = false
                 settings.setSupportZoom(false)
-                setBackgroundColor(0xFF0D0D12.toInt())
+                setBackgroundColor(0x00000000)
 
                 // Bridge для callback'ов из JS → Kotlin
                 addJavascriptInterface(MikuBridge(), "MikuBridge")

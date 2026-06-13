@@ -6,14 +6,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
+import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import com.korvus.pocketmiku.avatar.VrmAvatarView
-import com.korvus.pocketmiku.ui.chat.ChatScreen
+import com.korvus.pocketmiku.ui.chat.AniOverlay
 import com.korvus.pocketmiku.ui.theme.PocketMikuTheme
 
 class MainActivity : ComponentActivity() {
@@ -24,30 +23,24 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             PocketMikuTheme {
-                Scaffold(
-                    containerColor = Color(0xFF0D0D12),
-                ) { padding ->
-                    Box(modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding)
-                        .background(Color(0xFF0D0D12))) {
-
-                        // VRM Miku-аватар — фон, занимает весь экран
+                Scaffold(containerColor = Color.Black) { padding ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding)
+                            .background(
+                                Brush.verticalGradient(
+                                    0f to Color(0xFF1A0E2E),
+                                    0.55f to Color(0xFF0A0612),
+                                    1f to Color(0xFF000000),
+                                ),
+                            ),
+                    ) {
                         VrmAvatarView(
                             modifier = Modifier.fillMaxSize(),
                             controller = avatarController,
                         )
-
-                        // Чат — overlay снизу
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth(),
-                        ) {
-                            ChatScreen(
-                                avatar = avatarController,
-                            )
-                        }
+                        AniOverlay(avatar = avatarController)
                     }
                 }
             }
@@ -55,10 +48,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/**
- * Мост между Compose UI и WebView VRM-сценой. Compose дёргает методы,
- * VrmAvatarView пробрасывает их в JavaScript через WebView.evaluateJavascript.
- */
 class AvatarController {
     internal var jsExec: ((String) -> Unit)? = null
 
