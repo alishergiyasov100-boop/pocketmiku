@@ -2,6 +2,7 @@ package com.korvus.pocketmiku.avatar
 
 import android.annotation.SuppressLint
 import android.util.Log
+import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -40,12 +41,17 @@ fun VrmAvatarView(
                 .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(c))
                 .build()
 
+            WebView.setWebContentsDebuggingEnabled(true)
             WebView(c).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 settings.mediaPlaybackRequiresUserGesture = false
                 settings.setSupportZoom(false)
-                setBackgroundColor(0x00000000)
+                // Опасная связка: transparent WebView + Compose overlay в некоторых
+                // Android WebView версиях ломает GL композицию (Miku грузится, но не
+                // видна). Делаем opaque чёрный — gradient рисует сама three.js scene.
+                setBackgroundColor(0xFF0A0612.toInt())
+                setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
                 addJavascriptInterface(MikuBridge(), "MikuBridge")
 

@@ -27,14 +27,7 @@ class MainActivity : ComponentActivity() {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(padding)
-                            .background(
-                                Brush.verticalGradient(
-                                    0f to Color(0xFF1A0E2E),
-                                    0.55f to Color(0xFF0A0612),
-                                    1f to Color(0xFF000000),
-                                ),
-                            ),
+                            .padding(padding),
                     ) {
                         VrmAvatarView(
                             modifier = Modifier.fillMaxSize(),
