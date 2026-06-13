@@ -11,20 +11,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.webkit.WebViewAssetLoader
 import com.korvus.pocketmiku.AvatarController
 import java.io.ByteArrayInputStream
 
 /**
- * WebView с three-vrm сценой через WebViewAssetLoader.
+ * WebView с three-vrm сценой.
  *
- * Почему AssetLoader: ES module imports требуют proper origin (file:// блокируется CORS).
- * WebViewAssetLoader сервит ассеты через https://appassets.androidplatform.net/ —
- * это валидный origin, ESM работает.
- *
- * Маршруты:
- *   /assets/webview/...   ← src/main/assets/webview/...  (AssetsPathHandler)
- *   /assets/vrm/miku.vrm  ← src/main/assets/vrm/miku4.vrm (ручной перехват)
+ * Перешли с ES modules + WebViewAssetLoader на single-bundle (esbuild IIFE) +
+ * file:// — это убирает все CORS/origin сложности System WebView на HyperOS.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -36,22 +30,15 @@ fun VrmAvatarView(
     AndroidView(
         modifier = modifier,
         factory = { c ->
-            val assetLoader = WebViewAssetLoader.Builder()
-                .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(c))
-                .build()
-
             WebView.setWebContentsDebuggingEnabled(true)
             WebView(c).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
+                settings.allowFileAccess = true
+                settings.allowContentAccess = true
                 settings.mediaPlaybackRequiresUserGesture = false
                 settings.setSupportZoom(false)
-                // Опасная связка: transparent WebView + Compose overlay в некоторых
-                // Android WebView версиях ломает GL композицию (Miku грузится, но не
-                // видна). Делаем opaque чёрный — gradient рисует сама three.js scene.
                 setBackgroundColor(0xFF0A0612.toInt())
-                // НЕ setLayerType — на WebView это переключает на offscreen buffer
-                // и WebGL Surface мрёт. Дефолтный layer (system-managed) работает с GL.
 
                 addJavascriptInterface(MikuBridge(), "MikuBridge")
 
@@ -61,19 +48,14 @@ fun VrmAvatarView(
                         request: WebResourceRequest,
                     ): WebResourceResponse? {
                         val url = request.url.toString()
-                        if (url.endsWith("/assets/vrm/miku.vrm")) {
+                        if (url.endsWith("/miku.vrm")) {
                             return try {
                                 val bytes = view.context.assets
                                     .open("vrm/miku4.vrm")
                                     .use { it.readBytes() }
                                 WebResourceResponse(
                                     "application/octet-stream",
-                                    null,
-                                    200,
-                                    "OK",
-                                    mapOf(
-                                        "Access-Control-Allow-Origin" to "*",
-                                    ),
+                                    "binary",
                                     ByteArrayInputStream(bytes),
                                 )
                             } catch (e: Exception) {
@@ -81,7 +63,7 @@ fun VrmAvatarView(
                                 null
                             }
                         }
-                        return assetLoader.shouldInterceptRequest(request.url)
+                        return null
                     }
                 }
 
@@ -89,7 +71,7 @@ fun VrmAvatarView(
                     post { evaluateJavascript(js, null) }
                 }
 
-                loadUrl("https://appassets.androidplatform.net/assets/webview/index.html")
+                loadUrl("file:///android_asset/webview/index.html")
             }
         },
     )
