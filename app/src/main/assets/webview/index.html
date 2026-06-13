@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<title>Miku</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #0d0d12; overflow: hidden; height: 100%; }
+  #c { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  #err { position: fixed; left: 8px; bottom: 8px; color: #ff7676; font: 12px/1.3 monospace;
+         background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 4px; max-width: 80vw; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="err" style="display:none"></div>
+
+<script src="three.min.js"></script>
+<script src="three-vrm.min.js"></script>
+<script>
+const errBox = document.getElementById('err');
+function showErr(msg) {
+  errBox.style.display = 'block';
+  errBox.textContent = msg;
+  if (window.MikuBridge) window.MikuBridge.onError(String(msg));
+}
+window.onerror = (m, src, l, c, e) => showErr((e && e.stack) || m);
+
+// ── Three.js scene ──────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight, false);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d0d12);
+
+const camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 20);
+camera.position.set(0, 1.35, 1.6);
+
+// Light setup для VRM (PBR materials)
+const hemi = new THREE.HemisphereLight(0xffffff, 0x444466, 0.6);
+scene.add(hemi);
+const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+dir.position.set(1, 2, 1);
+scene.add(dir);
+
+let currentVrm = null;
+let mixer = null;
+
+// ── VRM loader ──────────────────────────────────────────────────────────────
+async function loadVrm(url) {
+  try {
+    const loader = new THREE.GLTFLoader();
+    loader.crossOrigin = 'anonymous';
+    loader.register((parser) => new THREE.VRMLoaderPlugin(parser));
+
+    const gltf = await loader.loadAsync(url);
+    const vrm = gltf.userData.vrm;
+    if (!vrm) { showErr('vrm metadata not found'); return; }
+
+    THREE.VRMUtils.removeUnnecessaryVertices(gltf.scene);
+    THREE.VRMUtils.removeUnnecessaryJoints(gltf.scene);
+    vrm.scene.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
+
+    // smile/blink defaults
+    if (vrm.expressionManager) {
+      vrm.expressionManager.setValue('neutral', 1.0);
+    }
+
+    // Position: VRM по default стоит на (0,0,0) ногами. Поднимем камеру к лицу.
+    scene.add(vrm.scene);
+    currentVrm = vrm;
+    if (window.MikuBridge) window.MikuBridge.onVrmLoaded(vrm.meta?.name || 'Miku');
+  } catch (e) {
+    showErr('vrm load: ' + (e?.message || e));
+  }
+}
+
+// ── Animation loop ──────────────────────────────────────────────────────────
+const clock = new THREE.Clock();
+function tick() {
+  const dt = clock.getDelta();
+  if (currentVrm) currentVrm.update(dt);
+  if (mixer) mixer.update(dt);
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+tick();
+
+// ── Resize ──────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+});
+
+// ── API доступное из Android (через MikuBridge) ────────────────────────────
+window.Miku = {
+  loadVrm: (path) => loadVrm(path),
+  // Lip sync: amplitude 0..1 → mouth_open VRMExpression 'aa'
+  setLipSync: (amp) => {
+    if (!currentVrm?.expressionManager) return;
+    const v = Math.max(0, Math.min(1, amp));
+    currentVrm.expressionManager.setValue('aa', v);
+  },
+  // Emotion: name = neutral|happy|sad|angry|surprised, value 0..1
+  setExpression: (name, value) => {
+    if (!currentVrm?.expressionManager) return;
+    currentVrm.expressionManager.setValue(name, Math.max(0, Math.min(1, value)));
+  },
+  // Поворот головы / тела ради «смотрит на тебя»
+  setLookAt: (yawDeg, pitchDeg) => {
+    if (!currentVrm?.humanoid) return;
+    const head = currentVrm.humanoid.getNormalizedBoneNode('head');
+    if (head) head.rotation.set(
+      THREE.MathUtils.degToRad(pitchDeg),
+      THREE.MathUtils.degToRad(yawDeg), 0);
+  },
+};
+
+// Auto-load default Miku из assets (через android_asset URL)
+loadVrm('miku.vrm');
+
+// Idle moргание + лёгкое body sway чтоб не была статуей
+setInterval(() => {
+  if (!currentVrm?.expressionManager) return;
+  currentVrm.expressionManager.setValue('blink', 1.0);
+  setTimeout(() => currentVrm?.expressionManager?.setValue('blink', 0.0), 120);
+}, 3500 + Math.random() * 2000);
+</script>
+</body>
+</html>
