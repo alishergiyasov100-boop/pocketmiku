@@ -2,7 +2,6 @@ package com.korvus.pocketmiku.avatar
 
 import android.annotation.SuppressLint
 import android.util.Log
-import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -51,7 +50,8 @@ fun VrmAvatarView(
                 // Android WebView версиях ломает GL композицию (Miku грузится, но не
                 // видна). Делаем opaque чёрный — gradient рисует сама three.js scene.
                 setBackgroundColor(0xFF0A0612.toInt())
-                setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                // НЕ setLayerType — на WebView это переключает на offscreen buffer
+                // и WebGL Surface мрёт. Дефолтный layer (system-managed) работает с GL.
 
                 addJavascriptInterface(MikuBridge(), "MikuBridge")
 
