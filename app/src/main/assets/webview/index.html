@@ -71,11 +71,18 @@ setStat('three.js OK');
 
 // ── Three.js scene ──────────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const renderer = new THREE.WebGLRenderer({
+  canvas, antialias: true, alpha: false,
+  powerPreference: 'high-performance',
+  preserveDrawingBuffer: false,
+});
+const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+renderer.setPixelRatio(pixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.setClearColor(0x000000, 0);
+renderer.setClearColor(0x0A0612, 1);  // тёмно-фиолет (низ градиента)
+
+setStat('GL ' + canvas.width + 'x' + canvas.height + ' pr=' + pixelRatio);
 
 const scene = new THREE.Scene();
 
@@ -146,10 +153,25 @@ async function loadVrm(url) {
 
 // ── Animation loop ──────────────────────────────────────────────────────────
 const clock = new THREE.Clock();
+let frameCount = 0;
+let lastFpsT = performance.now();
+let fps = 0;
 function tick() {
   const dt = clock.getDelta();
   if (currentVrm) currentVrm.update(dt);
   renderer.render(scene, camera);
+  frameCount++;
+  const now = performance.now();
+  if (now - lastFpsT > 1000) {
+    fps = Math.round(frameCount * 1000 / (now - lastFpsT));
+    frameCount = 0;
+    lastFpsT = now;
+    const calls = renderer.info.render.calls;
+    const tris = renderer.info.render.triangles;
+    if (currentVrm) {
+      setStat('fps ' + fps + ' calls ' + calls + ' tri ' + tris);
+    }
+  }
   requestAnimationFrame(tick);
 }
 tick();
