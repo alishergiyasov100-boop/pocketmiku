@@ -137,7 +137,7 @@ private fun Subtitle(text: String?, modifier: Modifier = Modifier) {
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(16.dp))
-                .background(Color.Black.copy(alpha = 0.35f))
+                .background(Color(0xFF2E2E3A).copy(alpha = 0.85f))
                 .padding(horizontal = 14.dp, vertical = 10.dp),
         ) {
             Text(
@@ -216,7 +216,7 @@ private fun AskAnythingPill(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(28.dp))
-            .background(Color.Black.copy(alpha = 0.32f))
+            .background(Color(0xFF3A3A48).copy(alpha = 0.82f))
             .padding(horizontal = 18.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -284,7 +284,7 @@ private fun GlassCircle(
         modifier = Modifier
             .size(size)
             .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.32f))
+            .background(Color(0xFF3A3A48).copy(alpha = 0.82f))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { content() }
@@ -298,7 +298,7 @@ private fun GlassPill(
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(20.dp))
-            .background(Color.Black.copy(alpha = 0.32f))
+            .background(Color(0xFF3A3A48).copy(alpha = 0.82f))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
