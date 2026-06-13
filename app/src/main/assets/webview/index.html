@@ -77,9 +77,17 @@ renderer.setClearColor(0x000000, 0);
 
 const scene = new THREE.Scene();
 
-const camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 20);
+const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.05, 100);
 camera.position.set(0, 1.35, 1.6);
 camera.lookAt(0, 1.35, 0);
+
+// Тест-куб справа от Miku чтоб подтвердить что рендер вообще работает
+const testCube = new THREE.Mesh(
+  new THREE.BoxGeometry(0.2, 0.2, 0.2),
+  new THREE.MeshStandardMaterial({ color: 0xff44aa })
+);
+testCube.position.set(0.5, 1.35, 0);
+scene.add(testCube);
 
 const hemi = new THREE.HemisphereLight(0xffffff, 0x444466, 0.6);
 scene.add(hemi);
@@ -114,7 +122,19 @@ async function loadVrm(url) {
     vrm.scene.rotation.y = Math.PI;
     scene.add(vrm.scene);
     currentVrm = vrm;
-    setStat('vrm loaded: ' + (vrm.meta?.name || vrm.meta?.title || 'Miku'));
+
+    // Авто-кадр: bbox модели → ставим камеру так чтобы голова была в фокусе
+    const bbox = new THREE.Box3().setFromObject(vrm.scene);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    bbox.getSize(size);
+    bbox.getCenter(center);
+    const headY = bbox.max.y - size.y * 0.1;
+    const distance = size.y * 1.0;
+    camera.position.set(0, headY, distance);
+    camera.lookAt(0, headY - size.y * 0.08, 0);
+
+    setStat('vrm: H=' + size.y.toFixed(2) + 'm Y=' + headY.toFixed(2));
     if (window.MikuBridge) window.MikuBridge.onVrmLoaded(vrm.meta?.name || 'Miku');
   } catch (e) {
     showErr('vrm load: ' + (e?.stack || e?.message || e));
