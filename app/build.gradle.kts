@@ -13,8 +13,8 @@ android {
         applicationId = "com.korvus.pocketmiku"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.1.2"
+        versionCode = 4
+        versionName = "0.1.3"
     }
 
     buildTypes {
@@ -52,4 +52,5 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
+    implementation(libs.androidx.webkit)
 }

@@ -122,8 +122,8 @@ window.Miku = {
   },
 };
 
-// Auto-load default Miku
-loadVrm('miku.vrm');
+// Auto-load default Miku (через WebViewAssetLoader перехват → vrm/miku4.vrm)
+loadVrm('../vrm/miku.vrm');
 
 // Idle blink
 setInterval(() => {
