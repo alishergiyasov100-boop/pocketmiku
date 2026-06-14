@@ -103,7 +103,9 @@ async function loadVrm(url) {
 
     if (vrm.expressionManager) vrm.expressionManager.setValue('neutral', 1.0);
 
-    vrm.scene.rotation.y = Math.PI;
+    // VRM 1.0 уже ориентирован к камере (+Z). VRM 0.x нужен π flip.
+    const isVrm1 = (vrm.meta?.metaVersion === '1' || gltf.userData.vrmAnimations === undefined && currentVrm == null && false);
+    // безопаснее не вертеть — VRMA от VRM 1.0 mocap делается под +Z
     scene.add(vrm.scene);
     currentVrm = vrm;
     mixer = new THREE.AnimationMixer(vrm.scene);
@@ -138,11 +140,15 @@ async function loadVrma(name) {
 }
 
 async function preloadClips() {
+  let loaded = 0;
   for (const name of VRMA_LIST) {
     try {
       const clip = await loadVrma(name);
       clipBank[name] = clip;
+      loaded++;
+      setStat('clips ' + loaded + '/' + VRMA_LIST.length);
     } catch (e) {
+      showErr('clip ' + name + ': ' + (e?.message || e));
       console.error('clip ' + name + ' failed:', e);
     }
   }
@@ -152,6 +158,9 @@ async function preloadClips() {
     idleAction.setLoop(THREE.LoopRepeat, Infinity);
     idleAction.play();
     activeAction = idleAction;
+    setStat('idle: ' + IDLE_CLIP + ' (' + loaded + ' clips)');
+  } else {
+    showErr('no idle clip "' + IDLE_CLIP + '" or no mixer');
   }
 }
 
@@ -168,14 +177,13 @@ function crossfadeTo(newAction, duration = 0.35) {
 }
 
 function playGesture(name) {
-  if (!mixer || !clipBank[name]) {
-    console.error('gesture missing: ' + name);
-    return;
-  }
+  if (!mixer) { setStat('no mixer'); return; }
+  if (!clipBank[name]) { setStat('no clip: ' + name); return; }
   const action = mixer.clipAction(clipBank[name]);
   action.setLoop(THREE.LoopOnce, 1);
   action.clampWhenFinished = false;
   crossfadeTo(action);
+  setStat('▶ ' + name);
 }
 
 // ── Blink с подмигиванием ─────────────────────────────────────────────────
