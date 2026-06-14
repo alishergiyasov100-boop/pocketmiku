@@ -21,6 +21,16 @@ import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import com.korvus.pocketmiku.llm.MotionClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.rememberCoroutineScope as composeRememberCoroutineScope
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
@@ -89,6 +99,7 @@ fun AniOverlay(
 
         BottomDeck(
             state = state,
+            avatar = avatar,
             onSend = { vm.send(it) },
             onReset = { vm.reset() },
             onGesture = { name -> avatar.playGesture(name, 2.0f) },
@@ -158,6 +169,7 @@ private fun Subtitle(text: String?, modifier: Modifier = Modifier) {
 @Composable
 private fun BottomDeck(
     state: ChatState,
+    avatar: com.korvus.pocketmiku.AvatarController,
     onSend: (String) -> Unit,
     onReset: () -> Unit,
     onGesture: (String) -> Unit,
@@ -165,6 +177,11 @@ private fun BottomDeck(
 ) {
     var input by remember { mutableStateOf("") }
     var muted by remember { mutableStateOf(false) }
+    var aiDialogOpen by remember { mutableStateOf(false) }
+    var aiBusy by remember { mutableStateOf(false) }
+    var aiStatus by remember { mutableStateOf<String?>(null) }
+    val scope = composeRememberCoroutineScope()
+    val motionClient = remember { MotionClient() }
 
     Column(
         modifier = modifier,
@@ -175,12 +192,25 @@ private fun BottomDeck(
 
         Spacer(Modifier.height(10.dp))
 
+        aiStatus?.let {
+            Text(
+                it,
+                color = if (it.startsWith("✗")) Color(0xFFFF8C8C) else Color(0xFF66E6FF),
+                fontSize = 12.sp,
+                modifier = Modifier.padding(bottom = 6.dp),
+            )
+        }
+
         Row(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            GlassCircle(size = 48.dp, onClick = { /* TODO push-to-talk */ }) {
-                Icon(Icons.Filled.Videocam, "Voice", tint = Color.White, modifier = Modifier.size(22.dp))
+            GlassCircle(size = 48.dp, onClick = { aiDialogOpen = true }) {
+                Icon(
+                    Icons.Filled.AutoAwesome, "AI Motion",
+                    tint = if (aiBusy) Color(0xFF66E6FF) else Color.White,
+                    modifier = Modifier.size(22.dp),
+                )
             }
             GlassCircle(size = 48.dp, onClick = { muted = !muted }) {
                 Icon(
@@ -197,6 +227,28 @@ private fun BottomDeck(
         }
 
         Spacer(Modifier.height(12.dp))
+
+        if (aiDialogOpen) {
+            AiMotionDialog(
+                onDismiss = { aiDialogOpen = false },
+                onGenerate = { prompt ->
+                    aiDialogOpen = false
+                    aiBusy = true
+                    aiStatus = "⏳ AI рисует движение…"
+                    scope.launch {
+                        try {
+                            val res = motionClient.generateMotion(prompt)
+                            aiStatus = "✓ ${res.tookSec}s — играю"
+                            avatar.playAiMotion(res.fbxBase64, prompt.take(20))
+                        } catch (e: Exception) {
+                            aiStatus = "✗ ${e.message?.take(60)}"
+                        } finally {
+                            aiBusy = false
+                        }
+                    }
+                },
+            )
+        }
 
         AskAnythingPill(
             value = input,
@@ -282,6 +334,62 @@ private fun AskAnythingPill(
             }
         }
     }
+}
+
+@Composable
+private fun AiMotionDialog(
+    onDismiss: () -> Unit,
+    onGenerate: (String) -> Unit,
+) {
+    var prompt by remember { mutableStateOf("A girl waves shyly and smiles") }
+    val presets = listOf(
+        "A girl waves shyly and smiles",
+        "A girl dances K-pop style",
+        "A girl jumps happily",
+        "A girl sits down and reads a book",
+        "A girl bows politely",
+        "A girl points forward excitedly",
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("AI Motion (Tencent Hunyuan)") },
+        text = {
+            Column {
+                Text("Опиши движение (английский):", fontSize = 13.sp, color = Color.Gray)
+                Spacer(Modifier.height(6.dp))
+                OutlinedTextField(
+                    value = prompt,
+                    onValueChange = { prompt = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = false,
+                    minLines = 2,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text("Готовые:", fontSize = 12.sp, color = Color.Gray)
+                presets.forEach { p ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { prompt = p }
+                            .padding(vertical = 4.dp),
+                    ) {
+                        Text("· $p", fontSize = 12.sp, color = Color(0xFF36DBC0))
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("Займёт ~30-60 сек (Hunyuan SOTA)", fontSize = 11.sp, color = Color.Gray)
+            }
+        },
+        confirmButton = {
+            Button(onClick = { if (prompt.isNotBlank()) onGenerate(prompt.trim()) }) {
+                Text("Сгенерить")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Отмена") }
+        },
+    )
 }
 
 private data class GestureChip(val emoji: String, val name: String, val label: String)

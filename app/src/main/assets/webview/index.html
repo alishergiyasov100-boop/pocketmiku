@@ -272,6 +272,119 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight, false);
 });
 
+// ── FBX → VRM retarget (для Hunyuan output) ──────────────────────────────
+// Hunyuan возвращает FBX с SMPL/Mixamo-naming skeleton.
+// Стандартный маппинг (FBX bone name → VRM normalized humanoid bone).
+const SMPL_TO_VRM = {
+  // основной торс
+  'mixamorigHips': 'hips', 'Hips': 'hips', 'Pelvis': 'hips', 'pelvis': 'hips', 'root': 'hips',
+  'mixamorigSpine': 'spine', 'Spine': 'spine', 'Spine1': 'spine', 'spine1': 'spine',
+  'mixamorigSpine1': 'chest', 'Spine2': 'chest', 'spine2': 'chest', 'Chest': 'chest',
+  'mixamorigSpine2': 'upperChest', 'Spine3': 'upperChest', 'spine3': 'upperChest',
+  'mixamorigNeck': 'neck', 'Neck': 'neck', 'neck': 'neck',
+  'mixamorigHead': 'head', 'Head': 'head', 'head': 'head',
+  // ноги
+  'mixamorigLeftUpLeg': 'leftUpperLeg', 'LeftUpLeg': 'leftUpperLeg', 'L_Hip': 'leftUpperLeg', 'left_hip': 'leftUpperLeg', 'LeftThigh': 'leftUpperLeg',
+  'mixamorigRightUpLeg': 'rightUpperLeg', 'RightUpLeg': 'rightUpperLeg', 'R_Hip': 'rightUpperLeg', 'right_hip': 'rightUpperLeg', 'RightThigh': 'rightUpperLeg',
+  'mixamorigLeftLeg': 'leftLowerLeg', 'LeftLeg': 'leftLowerLeg', 'L_Knee': 'leftLowerLeg', 'left_knee': 'leftLowerLeg', 'LeftShin': 'leftLowerLeg',
+  'mixamorigRightLeg': 'rightLowerLeg', 'RightLeg': 'rightLowerLeg', 'R_Knee': 'rightLowerLeg', 'right_knee': 'rightLowerLeg', 'RightShin': 'rightLowerLeg',
+  'mixamorigLeftFoot': 'leftFoot', 'LeftFoot': 'leftFoot', 'L_Ankle': 'leftFoot', 'left_ankle': 'leftFoot',
+  'mixamorigRightFoot': 'rightFoot', 'RightFoot': 'rightFoot', 'R_Ankle': 'rightFoot', 'right_ankle': 'rightFoot',
+  'mixamorigLeftToeBase': 'leftToes', 'LeftToes': 'leftToes', 'L_Foot': 'leftToes', 'left_foot': 'leftToes',
+  'mixamorigRightToeBase': 'rightToes', 'RightToes': 'rightToes', 'R_Foot': 'rightToes', 'right_foot': 'rightToes',
+  // плечевой пояс
+  'mixamorigLeftShoulder': 'leftShoulder', 'LeftShoulder': 'leftShoulder', 'L_Collar': 'leftShoulder', 'left_collar': 'leftShoulder',
+  'mixamorigRightShoulder': 'rightShoulder', 'RightShoulder': 'rightShoulder', 'R_Collar': 'rightShoulder', 'right_collar': 'rightShoulder',
+  // руки
+  'mixamorigLeftArm': 'leftUpperArm', 'LeftArm': 'leftUpperArm', 'L_Shoulder': 'leftUpperArm', 'left_shoulder': 'leftUpperArm',
+  'mixamorigRightArm': 'rightUpperArm', 'RightArm': 'rightUpperArm', 'R_Shoulder': 'rightUpperArm', 'right_shoulder': 'rightUpperArm',
+  'mixamorigLeftForeArm': 'leftLowerArm', 'LeftForeArm': 'leftLowerArm', 'L_Elbow': 'leftLowerArm', 'left_elbow': 'leftLowerArm',
+  'mixamorigRightForeArm': 'rightLowerArm', 'RightForeArm': 'rightLowerArm', 'R_Elbow': 'rightLowerArm', 'right_elbow': 'rightLowerArm',
+  'mixamorigLeftHand': 'leftHand', 'LeftHand': 'leftHand', 'L_Wrist': 'leftHand', 'left_wrist': 'leftHand',
+  'mixamorigRightHand': 'rightHand', 'RightHand': 'rightHand', 'R_Wrist': 'rightHand', 'right_wrist': 'rightHand',
+};
+
+function retargetFbxToVrm(fbxGroup, vrm) {
+  if (!vrm?.humanoid || !fbxGroup?.animations || fbxGroup.animations.length === 0) {
+    throw new Error('no animations or no VRM humanoid');
+  }
+  const srcClip = fbxGroup.animations[0];
+  const tracks = [];
+  const observedBones = new Set();
+
+  for (const track of srcClip.tracks) {
+    // имя трека: "BoneName.position" / "BoneName.quaternion" / "BoneName.scale"
+    const dotIdx = track.name.lastIndexOf('.');
+    if (dotIdx < 0) continue;
+    const srcBone = track.name.substring(0, dotIdx);
+    const prop = track.name.substring(dotIdx + 1);
+
+    observedBones.add(srcBone);
+
+    const vrmBoneName = SMPL_TO_VRM[srcBone];
+    if (!vrmBoneName) continue;
+
+    const targetNode = vrm.humanoid.getNormalizedBoneNode(vrmBoneName);
+    if (!targetNode) continue;
+
+    // оставляем только rotation (quaternion) — position только для hips
+    if (prop === 'quaternion') {
+      tracks.push(new THREE.QuaternionKeyframeTrack(
+        targetNode.name + '.quaternion',
+        track.times,
+        track.values,
+        track.getInterpolation(),
+      ));
+    } else if (prop === 'position' && vrmBoneName === 'hips') {
+      // position только для hips чтобы не сломать pose. Scale-fix не делаем здесь.
+      tracks.push(new THREE.VectorKeyframeTrack(
+        targetNode.name + '.position',
+        track.times,
+        track.values,
+        track.getInterpolation(),
+      ));
+    }
+  }
+
+  if (tracks.length === 0) {
+    setStat('retarget: 0 tracks (bones=' + Array.from(observedBones).slice(0, 5).join(',') + '...)');
+    throw new Error('no tracks matched. Source bones: ' + Array.from(observedBones).slice(0, 8).join(','));
+  }
+
+  setStat('retarget OK: ' + tracks.length + ' tracks');
+  return new THREE.AnimationClip('ai_motion', srcClip.duration, tracks);
+}
+
+let aiAction = null;
+
+function playAiMotion(fbxBase64, label) {
+  try {
+    if (!currentVrm || !mixer) { setStat('not ready'); return; }
+    setStat('parsing FBX…');
+
+    // base64 → Uint8Array → ArrayBuffer
+    const bin = atob(fbxBase64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+
+    const loader = new FBXLoader();
+    const fbxGroup = loader.parse(arr.buffer, '');
+
+    const clip = retargetFbxToVrm(fbxGroup, currentVrm);
+    const action = mixer.clipAction(clip);
+    action.setLoop(THREE.LoopOnce, 1);
+    action.clampWhenFinished = false;
+    inGesture = true;
+    crossfadeTo(action, 0.3);
+    aiAction = action;
+    setStat('▶ AI: ' + (label || 'motion'));
+  } catch (e) {
+    showErr('AI motion: ' + (e?.message || e));
+    setStat('AI FAIL');
+    inGesture = false;
+  }
+}
+
 window.Miku = {
   loadVrm: (path) => loadVrm(path),
   setLipSync: (amp) => {
@@ -291,6 +404,7 @@ window.Miku = {
   },
   playGesture: (name) => playGesture(name),
   listGestures: () => VRMA_LIST.slice(),
+  playAiMotion: (fbxBase64, label) => playAiMotion(fbxBase64, label),
 };
 
 loadVrm('../vrm/miku.vrm');

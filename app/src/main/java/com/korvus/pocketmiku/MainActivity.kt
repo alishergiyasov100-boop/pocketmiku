@@ -143,6 +143,11 @@ class AvatarController {
     fun playGesture(name: String, durationSec: Float = 2.0f) {
         jsExec?.invoke("Miku.playGesture('$name', $durationSec);")
     }
+    /** Передать base64 FBX от Hunyuan в WebView для парсинга и retarget. */
+    fun playAiMotion(fbxBase64: String, label: String = "ai") {
+        val escaped = label.replace("'", "")
+        jsExec?.invoke("Miku.playAiMotion('$fbxBase64', '$escaped');")
+    }
 }
 
 private class MikuBridge {

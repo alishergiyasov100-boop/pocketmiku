@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
 window.THREE = THREE;
 window.GLTFLoader = GLTFLoader;
+window.FBXLoader = FBXLoader;
 window.VRMLoaderPlugin = VRMLoaderPlugin;
 window.VRMUtils = VRMUtils;
 window.VRMAnimationLoaderPlugin = VRMAnimationLoaderPlugin;
