@@ -27,7 +27,9 @@ const errBox = document.getElementById('err');
 const statBox = document.getElementById('stat');
 function showErr(msg) {
   errBox.style.display = 'block';
-  errBox.textContent = msg;
+  // накапливаем — иначе теряем первую ошибку при второй
+  const existing = errBox.textContent;
+  errBox.textContent = (existing ? existing + '\n' : '') + msg;
   if (window.MikuBridge) window.MikuBridge.onError(String(msg));
 }
 function setStat(s) { statBox.textContent = s; }
@@ -153,7 +155,7 @@ async function loadVrma(name) {
 
 async function preloadClips() {
   let loaded = 0;
-  let lastErr = '';
+  let firstErr = '';
   for (const name of VRMA_LIST) {
     try {
       const clip = await loadVrma(name);
@@ -161,11 +163,11 @@ async function preloadClips() {
       loaded++;
       setStat('clips ' + loaded + '/' + VRMA_LIST.length);
     } catch (e) {
-      lastErr = (e?.message || e) + '';
+      if (!firstErr) firstErr = (e?.message || e) + '';
       console.error('clip ' + name + ' failed:', e);
     }
   }
-  if (loaded === 0 && lastErr) showErr(lastErr);
+  if (loaded === 0 && firstErr) showErr('VRMA: ' + firstErr);
   // запускаем idle
   if (clipBank[IDLE_CLIP] && mixer) {
     idleAction = mixer.clipAction(clipBank[IDLE_CLIP]);
