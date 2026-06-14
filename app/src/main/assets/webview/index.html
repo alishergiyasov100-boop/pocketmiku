@@ -74,17 +74,16 @@ const IDLE_CLIP = 'Relax';
 const VRMA_LIST = ['Relax', 'Angry', 'Blush', 'Clapping', 'Goodbye', 'Jump',
                    'LookAround', 'Sad', 'Sleepy', 'Surprised', 'Thinking'];
 
-// ДВА разных loader'а — VRMLoaderPlugin и VRMAnimationLoaderPlugin
-// нельзя на одном GLTFLoader (VRMLoaderPlugin перехватывает VRMA как VRM).
-const vrmLoader = new GLTFLoader();
-vrmLoader.register((parser) => new VRMLoaderPlugin(parser));
-const vrmaLoader = new GLTFLoader();
-vrmaLoader.register((parser) => new VRMAnimationLoaderPlugin(parser));
+// Один loader с обоими плагинами (official pixiv pattern)
+const gltfLoader = new GLTFLoader();
+gltfLoader.crossOrigin = 'anonymous';
+gltfLoader.register((parser) => new VRMLoaderPlugin(parser));
+gltfLoader.register((parser) => new VRMAnimationLoaderPlugin(parser));
 
 async function loadVrm(url) {
   try {
     setStat('loading vrm…');
-    const gltf = await vrmLoader.loadAsync(url, (ev) => {
+    const gltf = await gltfLoader.loadAsync(url, (ev) => {
       if (ev.total) setStat('vrm ' + Math.round(100 * ev.loaded / ev.total) + '%');
     });
     const vrm = gltf.userData.vrm;
@@ -139,7 +138,7 @@ async function loadVrma(name) {
   const url = '../animations/' + name + '.vrma';
   let gltf;
   try {
-    gltf = await vrmaLoader.loadAsync(url);
+    gltf = await gltfLoader.loadAsync(url);
   } catch (e) {
     throw new Error('fetch fail ' + name + ': ' + (e?.message || e));
   }
