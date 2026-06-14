@@ -151,7 +151,8 @@ window.Miku = {
   },
 };
 
-loadVrm('miku.vrm');
+// URL относительный к /assets/webview/, перехват в Kotlin ловит /miku.vrm
+loadVrm('../vrm/miku.vrm');
 
 setInterval(() => {
   if (!currentVrm?.expressionManager) return;

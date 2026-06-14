@@ -11,15 +11,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.webkit.WebViewAssetLoader
 import com.korvus.pocketmiku.AvatarController
 import java.io.ByteArrayInputStream
 
-/**
- * WebView с three-vrm сценой.
- *
- * Перешли с ES modules + WebViewAssetLoader на single-bundle (esbuild IIFE) +
- * file:// — это убирает все CORS/origin сложности System WebView на HyperOS.
- */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun VrmAvatarView(
@@ -30,12 +25,14 @@ fun VrmAvatarView(
     AndroidView(
         modifier = modifier,
         factory = { c ->
+            val assetLoader = WebViewAssetLoader.Builder()
+                .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(c))
+                .build()
+
             WebView.setWebContentsDebuggingEnabled(true)
             WebView(c).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
-                settings.allowFileAccess = true
-                settings.allowContentAccess = true
                 settings.mediaPlaybackRequiresUserGesture = false
                 settings.setSupportZoom(false)
                 setBackgroundColor(0xFF0A0612.toInt())
@@ -55,7 +52,10 @@ fun VrmAvatarView(
                                     .use { it.readBytes() }
                                 WebResourceResponse(
                                     "application/octet-stream",
-                                    "binary",
+                                    null,
+                                    200,
+                                    "OK",
+                                    mapOf("Access-Control-Allow-Origin" to "*"),
                                     ByteArrayInputStream(bytes),
                                 )
                             } catch (e: Exception) {
@@ -63,7 +63,7 @@ fun VrmAvatarView(
                                 null
                             }
                         }
-                        return null
+                        return assetLoader.shouldInterceptRequest(request.url)
                     }
                 }
 
@@ -71,7 +71,7 @@ fun VrmAvatarView(
                     post { evaluateJavascript(js, null) }
                 }
 
-                loadUrl("file:///android_asset/webview/index.html")
+                loadUrl("https://appassets.androidplatform.net/assets/webview/index.html")
             }
         },
     )
