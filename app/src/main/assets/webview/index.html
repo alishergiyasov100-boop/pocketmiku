@@ -109,9 +109,11 @@ async function loadVrm(url) {
 
     if (vrm.expressionManager) vrm.expressionManager.setValue('neutral', 1.0);
 
-    // VRM 1.0 уже ориентирован к камере (+Z). VRM 0.x нужен π flip.
-    const isVrm1 = (vrm.meta?.metaVersion === '1' || gltf.userData.vrmAnimations === undefined && currentVrm == null && false);
-    // безопаснее не вертеть — VRMA от VRM 1.0 mocap делается под +Z
+    // VRM 0.x смотрит -Z, VRM 1.0 смотрит +Z. Авто-определяем.
+    const isVrm1 = vrm.meta?.metaVersion === '1';
+    if (!isVrm1) {
+      vrm.scene.rotation.y = Math.PI;
+    }
     scene.add(vrm.scene);
     currentVrm = vrm;
     mixer = new THREE.AnimationMixer(vrm.scene);
