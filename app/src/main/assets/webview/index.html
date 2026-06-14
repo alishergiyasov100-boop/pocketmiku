@@ -99,9 +99,14 @@ const IDLE_CLIP = 'Relax';
 // порядок предзагрузки (Relax первым — он же initial idle)
 const VRMA_LIST = ['Relax', 'Angry', 'Blush', 'Clapping', 'Goodbye', 'Jump',
                    'LookAround', 'Sad', 'Sleepy', 'Surprised', 'Thinking',
-                   // +9 новых (VRoid Project + flarom)
                    'Greeting', 'ModelPose', 'PeaceSign', 'Shoot', 'ShowFullBody',
-                   'Spin', 'Squat', 'Idle', 'Walk'];
+                   'Spin', 'Squat', 'Idle', 'Walk',
+                   // +27 new (sbrmnn + desktop-homunculus)
+                   'Grabbed', 'IdleMaid', 'IdleSitting',
+                   'Annoyed', 'Celebrate2', 'Cheer', 'Curious', 'DanceKokoro', 'DanceMorning',
+                   'Dogeza', 'Drink', 'Embarrassed', 'HandTalk', 'HandsOnHead2', 'Hello',
+                   'Humble', 'LeanIn', 'Nod', 'OpenPalms', 'PointSoft', 'PoseStand',
+                   'Relaxed', 'ShakeNo', 'Smartphone', 'Startled', 'SurprisedReact', 'ThinkTilt'];
 
 // Один loader с обоими плагинами (official pixiv pattern)
 const gltfLoader = new GLTFLoader();
@@ -474,6 +479,34 @@ const AUTO_POOL = [
   { name: 'Squat', weight: 1, type: 'gesture' },
   { name: 'Idle', weight: 4, type: 'idle' },
   { name: 'Walk', weight: 2, type: 'gesture' },
+  // +27 new
+  { name: 'IdleMaid', weight: 3, type: 'idle' },
+  { name: 'IdleSitting', weight: 2, type: 'idle' },
+  { name: 'Relaxed', weight: 3, type: 'idle' },
+  { name: 'PoseStand', weight: 2, type: 'idle' },
+  { name: 'Hello', weight: 3, type: 'gesture' },
+  { name: 'Nod', weight: 3, type: 'gesture' },
+  { name: 'ShakeNo', weight: 2, type: 'gesture' },
+  { name: 'Annoyed', weight: 1, type: 'gesture' },
+  { name: 'Celebrate2', weight: 2, type: 'gesture' },
+  { name: 'Cheer', weight: 2, type: 'gesture' },
+  { name: 'Curious', weight: 2, type: 'gesture' },
+  { name: 'DanceKokoro', weight: 2, type: 'gesture' },
+  { name: 'DanceMorning', weight: 2, type: 'gesture' },
+  { name: 'Drink', weight: 1, type: 'gesture' },
+  { name: 'Embarrassed', weight: 2, type: 'gesture' },
+  { name: 'HandTalk', weight: 1, type: 'gesture' },
+  { name: 'Humble', weight: 1, type: 'gesture' },
+  { name: 'LeanIn', weight: 1, type: 'gesture' },
+  { name: 'OpenPalms', weight: 1, type: 'gesture' },
+  { name: 'PointSoft', weight: 1, type: 'gesture' },
+  { name: 'Smartphone', weight: 1, type: 'gesture' },
+  { name: 'Startled', weight: 1, type: 'gesture' },
+  { name: 'SurprisedReact', weight: 1, type: 'gesture' },
+  { name: 'ThinkTilt', weight: 2, type: 'gesture' },
+  { name: 'Grabbed', weight: 1, type: 'gesture' },
+  { name: 'Dogeza', weight: 1, type: 'gesture' },
+  { name: 'HandsOnHead2', weight: 1, type: 'gesture' },
   // FBX mocap motions (FreeMotionPack1)
   { name: 'Celebrate1', weight: 2, type: 'gesture' },
   { name: 'Celebrate2', weight: 2, type: 'gesture' },
