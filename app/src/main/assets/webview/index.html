@@ -98,7 +98,10 @@ const IDLE_POOL = ['Relax', 'LookAround', 'Thinking', 'Sleepy'];
 const IDLE_CLIP = 'Relax';
 // порядок предзагрузки (Relax первым — он же initial idle)
 const VRMA_LIST = ['Relax', 'Angry', 'Blush', 'Clapping', 'Goodbye', 'Jump',
-                   'LookAround', 'Sad', 'Sleepy', 'Surprised', 'Thinking'];
+                   'LookAround', 'Sad', 'Sleepy', 'Surprised', 'Thinking',
+                   // +9 новых (VRoid Project + flarom)
+                   'Greeting', 'ModelPose', 'PeaceSign', 'Shoot', 'ShowFullBody',
+                   'Spin', 'Squat', 'Idle', 'Walk'];
 
 // Один loader с обоими плагинами (official pixiv pattern)
 const gltfLoader = new GLTFLoader();
@@ -461,6 +464,16 @@ const AUTO_POOL = [
   { name: 'Clapping', weight: 2, type: 'gesture' },
   { name: 'Surprised', weight: 1, type: 'gesture' },
   { name: 'Jump', weight: 1, type: 'gesture' },
+  // +9 новых VRMA
+  { name: 'Greeting', weight: 2, type: 'gesture' },
+  { name: 'ModelPose', weight: 2, type: 'gesture' },
+  { name: 'PeaceSign', weight: 2, type: 'gesture' },
+  { name: 'Shoot', weight: 1, type: 'gesture' },
+  { name: 'ShowFullBody', weight: 1, type: 'gesture' },
+  { name: 'Spin', weight: 2, type: 'gesture' },
+  { name: 'Squat', weight: 1, type: 'gesture' },
+  { name: 'Idle', weight: 4, type: 'idle' },
+  { name: 'Walk', weight: 2, type: 'gesture' },
   // FBX mocap motions (FreeMotionPack1)
   { name: 'Celebrate1', weight: 2, type: 'gesture' },
   { name: 'Celebrate2', weight: 2, type: 'gesture' },
