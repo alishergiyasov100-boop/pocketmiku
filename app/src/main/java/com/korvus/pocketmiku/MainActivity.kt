@@ -121,6 +121,9 @@ class AvatarController {
     fun lookAt(yawDeg: Float, pitchDeg: Float) {
         jsExec?.invoke("Miku.setLookAt($yawDeg, $pitchDeg);")
     }
+    fun playGesture(name: String, durationSec: Float = 2.0f) {
+        jsExec?.invoke("Miku.playGesture('$name', $durationSec);")
+    }
 }
 
 private class MikuBridge {

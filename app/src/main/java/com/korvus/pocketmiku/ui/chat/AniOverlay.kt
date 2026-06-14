@@ -4,8 +4,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -89,6 +91,7 @@ fun AniOverlay(
             state = state,
             onSend = { vm.send(it) },
             onReset = { vm.reset() },
+            onGesture = { name -> avatar.playGesture(name, 2.0f) },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
@@ -157,6 +160,7 @@ private fun BottomDeck(
     state: ChatState,
     onSend: (String) -> Unit,
     onReset: () -> Unit,
+    onGesture: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var input by remember { mutableStateOf("") }
@@ -166,6 +170,11 @@ private fun BottomDeck(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // Полоска жестов (emoji-кнопки)
+        GestureBar(onGesture = onGesture)
+
+        Spacer(Modifier.height(10.dp))
+
         Row(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -270,6 +279,50 @@ private fun AskAnythingPill(
                     tint = Color.Black,
                     modifier = Modifier.size(18.dp),
                 )
+            }
+        }
+    }
+}
+
+private data class GestureChip(val emoji: String, val name: String, val label: String)
+
+private val GESTURES = listOf(
+    GestureChip("👋", "wave", "wave"),
+    GestureChip("💕", "heart", "heart"),
+    GestureChip("😘", "kiss", "kiss"),
+    GestureChip("✌", "peace", "peace"),
+    GestureChip("🤔", "think", "think"),
+    GestureChip("😳", "shy", "shy"),
+    GestureChip("😲", "surprised", "wow"),
+    GestureChip("😢", "cry", "cry"),
+    GestureChip("😤", "pout", "pout"),
+    GestureChip("🤷", "shrug", "shrug"),
+    GestureChip("💃", "dance", "dance"),
+    GestureChip("⬆", "jump", "jump"),
+    GestureChip("🙂", "nod", "yes"),
+    GestureChip("🙅", "shake", "no"),
+)
+
+@Composable
+private fun GestureBar(onGesture: (String) -> Unit) {
+    androidx.compose.foundation.lazy.LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(horizontal = 4.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        items(GESTURES) { g ->
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xFF3A3A48).copy(alpha = 0.82f))
+                    .clickable { onGesture(g.name) }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(g.emoji, fontSize = 16.sp)
+                    Spacer(Modifier.width(6.dp))
+                    Text(g.label, color = Color.White, fontSize = 12.sp)
+                }
             }
         }
     }
