@@ -13,8 +13,8 @@ android {
         applicationId = "com.korvus.pocketmiku"
         minSdk = 26
         targetSdk = 34
-        versionCode = 22
-        versionName = "0.2.9"
+        versionCode = 23
+        versionName = "0.2.10"
     }
 
     buildTypes {
