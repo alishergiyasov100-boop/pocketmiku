@@ -46,6 +46,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun AniOverlay(
     avatar: AvatarController,
+    modifier: Modifier = Modifier,
     vm: ChatViewModel = viewModel(),
 ) {
     val state = vm.state.value
@@ -65,7 +66,7 @@ fun AniOverlay(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = modifier.fillMaxSize()) {
 
         TopBar(
             modifier = Modifier
