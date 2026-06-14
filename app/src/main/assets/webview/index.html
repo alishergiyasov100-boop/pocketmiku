@@ -133,14 +133,27 @@ async function loadVrm(url) {
 
 async function loadVrma(name) {
   const url = '../animations/' + name + '.vrma';
-  const gltf = await gltfLoader.loadAsync(url);
-  const va = gltf.userData.vrmAnimations?.[0];
-  if (!va) throw new Error('no VRMAnimation in ' + name);
-  return createVRMAnimationClip(va, currentVrm);
+  let gltf;
+  try {
+    gltf = await gltfLoader.loadAsync(url);
+  } catch (e) {
+    throw new Error('fetch fail ' + name + ': ' + (e?.message || e));
+  }
+  const animations = gltf.userData.vrmAnimations;
+  if (!animations || animations.length === 0) {
+    throw new Error('no vrmAnimations in ' + name + ' (userData keys: ' + Object.keys(gltf.userData || {}).join(',') + ')');
+  }
+  const va = animations[0];
+  try {
+    return createVRMAnimationClip(va, currentVrm);
+  } catch (e) {
+    throw new Error('createClip ' + name + ': ' + (e?.message || e));
+  }
 }
 
 async function preloadClips() {
   let loaded = 0;
+  let lastErr = '';
   for (const name of VRMA_LIST) {
     try {
       const clip = await loadVrma(name);
@@ -148,10 +161,11 @@ async function preloadClips() {
       loaded++;
       setStat('clips ' + loaded + '/' + VRMA_LIST.length);
     } catch (e) {
-      showErr('clip ' + name + ': ' + (e?.message || e));
+      lastErr = (e?.message || e) + '';
       console.error('clip ' + name + ' failed:', e);
     }
   }
+  if (loaded === 0 && lastErr) showErr(lastErr);
   // запускаем idle
   if (clipBank[IDLE_CLIP] && mixer) {
     idleAction = mixer.clipAction(clipBank[IDLE_CLIP]);

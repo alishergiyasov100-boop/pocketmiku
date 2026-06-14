@@ -82,15 +82,16 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     // VRMA — отдельная обработка, AssetLoader путает MIME
-                    val vrmaMatch = Regex(".*/animations/([A-Za-z0-9_]+)\\.vrma$").find(url)
-                    if (vrmaMatch != null) {
-                        val name = vrmaMatch.groupValues[1]
+                    if (url.endsWith(".vrma")) {
+                        val name = url.substringAfterLast('/').removeSuffix(".vrma")
+                        Log.i("VrmAvatar", "VRMA request url=$url name=$name")
                         return try {
                             val bytes = view.context.assets
                                 .open("animations/$name.vrma")
                                 .use { it.readBytes() }
+                            Log.i("VrmAvatar", "VRMA $name size=${bytes.size}")
                             WebResourceResponse(
-                                "model/gltf-binary", null, 200, "OK",
+                                "application/octet-stream", null, 200, "OK",
                                 mapOf("Access-Control-Allow-Origin" to "*"),
                                 ByteArrayInputStream(bytes),
                             )
