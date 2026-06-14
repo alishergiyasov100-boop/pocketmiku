@@ -81,6 +81,24 @@ class MainActivity : ComponentActivity() {
                             null
                         }
                     }
+                    // VRMA — отдельная обработка, AssetLoader путает MIME
+                    val vrmaMatch = Regex(".*/animations/([A-Za-z0-9_]+)\\.vrma$").find(url)
+                    if (vrmaMatch != null) {
+                        val name = vrmaMatch.groupValues[1]
+                        return try {
+                            val bytes = view.context.assets
+                                .open("animations/$name.vrma")
+                                .use { it.readBytes() }
+                            WebResourceResponse(
+                                "model/gltf-binary", null, 200, "OK",
+                                mapOf("Access-Control-Allow-Origin" to "*"),
+                                ByteArrayInputStream(bytes),
+                            )
+                        } catch (e: Exception) {
+                            Log.e("VrmAvatar", "vrma open failed for $name: $e")
+                            null
+                        }
+                    }
                     return assetLoader.shouldInterceptRequest(request.url)
                 }
             }
