@@ -69,8 +69,11 @@ let mixer = null;
 const clipBank = {};
 let activeAction = null;
 let idleAction = null;
+let inGesture = false;
+// Idle-pool: переключается между этими случайно каждые 15-30 сек (живее чем один loop)
+const IDLE_POOL = ['Relax', 'LookAround', 'Thinking', 'Sleepy'];
 const IDLE_CLIP = 'Relax';
-// порядок предзагрузки (Relax первым — он же idle)
+// порядок предзагрузки (Relax первым — он же initial idle)
 const VRMA_LIST = ['Relax', 'Angry', 'Blush', 'Clapping', 'Goodbye', 'Jump',
                    'LookAround', 'Sad', 'Sleepy', 'Surprised', 'Thinking'];
 
@@ -112,11 +115,10 @@ async function loadVrm(url) {
     scene.add(vrm.scene);
     currentVrm = vrm;
     mixer = new THREE.AnimationMixer(vrm.scene);
-    // Когда non-idle клип заканчивается — возврат в idle
+    // Когда non-idle клип заканчивается — возврат в idle pool (рандомный)
     mixer.addEventListener('finished', () => {
-      if (idleAction) {
-        crossfadeTo(idleAction);
-      }
+      inGesture = false;
+      pickRandomIdle();
     });
 
     const bbox = new THREE.Box3().setFromObject(vrm.scene);
@@ -171,14 +173,31 @@ async function preloadClips() {
   if (loaded === 0 && firstErr) showErr('VRMA: ' + firstErr);
   // запускаем idle
   if (clipBank[IDLE_CLIP] && mixer) {
-    idleAction = mixer.clipAction(clipBank[IDLE_CLIP]);
-    idleAction.setLoop(THREE.LoopRepeat, Infinity);
-    idleAction.play();
-    activeAction = idleAction;
-    setStat('idle: ' + IDLE_CLIP + ' (' + loaded + ' clips)');
+    pickRandomIdle();
+    setStat('ready (' + loaded + ' clips)');
+    scheduleIdleSwap();
   } else {
     showErr('no idle clip "' + IDLE_CLIP + '" or no mixer');
   }
+}
+
+function pickRandomIdle() {
+  if (!mixer) return;
+  const pool = IDLE_POOL.filter((n) => clipBank[n]);
+  if (pool.length === 0) return;
+  const name = pool[Math.floor(Math.random() * pool.length)];
+  const action = mixer.clipAction(clipBank[name]);
+  action.setLoop(THREE.LoopRepeat, Infinity);
+  crossfadeTo(action, 0.6);
+  idleAction = action;
+}
+
+function scheduleIdleSwap() {
+  const delay = 15000 + Math.random() * 15000;  // 15-30 сек
+  setTimeout(() => {
+    if (!inGesture) pickRandomIdle();
+    scheduleIdleSwap();
+  }, delay);
 }
 
 function crossfadeTo(newAction, duration = 0.35) {
@@ -199,6 +218,7 @@ function playGesture(name) {
   const action = mixer.clipAction(clipBank[name]);
   action.setLoop(THREE.LoopOnce, 1);
   action.clampWhenFinished = false;
+  inGesture = true;
   crossfadeTo(action);
   setStat('▶ ' + name);
 }
