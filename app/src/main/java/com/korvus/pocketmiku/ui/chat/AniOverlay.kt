@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
@@ -178,6 +179,7 @@ private fun BottomDeck(
     var aiDialogOpen by remember { mutableStateOf(false) }
     var aiBusy by remember { mutableStateOf(false) }
     var aiStatus by remember { mutableStateOf<String?>(null) }
+    var autoOn by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val motionClient = remember { MotionClient() }
 
@@ -207,6 +209,16 @@ private fun BottomDeck(
                 Icon(
                     Icons.Filled.AutoAwesome, "AI Motion",
                     tint = if (aiBusy) Color(0xFF66E6FF) else Color.White,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            GlassCircle(size = 48.dp, onClick = {
+                autoOn = !autoOn
+                avatar.setAutonomous(autoOn)
+            }) {
+                Icon(
+                    Icons.Filled.SmartToy, "Autonomous",
+                    tint = if (autoOn) Color(0xFF36DBC0) else Color.White,
                     modifier = Modifier.size(22.dp),
                 )
             }

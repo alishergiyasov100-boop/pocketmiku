@@ -148,6 +148,10 @@ class AvatarController {
         val escaped = label.replace("'", "")
         jsExec?.invoke("Miku.playAiMotion('$fbxBase64', '$escaped');")
     }
+    /** Autonomous mode — Mura живёт сама без команд. */
+    fun setAutonomous(on: Boolean) {
+        jsExec?.invoke("Miku.setAutonomous($on);")
+    }
 }
 
 private class MikuBridge {

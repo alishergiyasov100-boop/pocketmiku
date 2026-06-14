@@ -54,6 +54,29 @@ const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerH
 camera.position.set(0, 1.35, 1.6);
 camera.lookAt(0, 1.35, 0);
 
+// ── Простая "комната" — пол + контекст-объекты ─────────────────────────
+const floorMat = new THREE.MeshStandardMaterial({ color: 0x2a1840, roughness: 0.9, metalness: 0.1 });
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), floorMat);
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = 0;
+scene.add(floor);
+
+// Контекст-объекты вокруг Mura (visual props для autonomous behavior)
+const propMat = new THREE.MeshStandardMaterial({ color: 0xff66cc, emissive: 0x331122, roughness: 0.5 });
+const box = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), propMat);
+box.position.set(1.0, 0.2, -0.5);
+scene.add(box);
+
+const ball = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 16), new THREE.MeshStandardMaterial({ color: 0x66e6ff, emissive: 0x113344 }));
+ball.position.set(-1.0, 0.25, -0.3);
+scene.add(ball);
+
+// "Окно" — emissive plane сзади для атмосферы
+const windowMat = new THREE.MeshBasicMaterial({ color: 0xfff5cc });
+const win = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.0), windowMat);
+win.position.set(0, 1.4, -2.0);
+scene.add(win);
+
 // ── 3-point lighting + rim (как у Ani) ────────────────────────────────────
 scene.add(new THREE.HemisphereLight(0xFFE9F2, 0x2A1840, 0.9));
 const keyLight = new THREE.DirectionalLight(0xFFFFFF, 1.5);
@@ -385,6 +408,75 @@ function playAiMotion(fbxBase64, label) {
   }
 }
 
+// ── Autonomous Mode — "Mura живёт сама" ──────────────────────────────────
+// MVP: каждые 10-20 сек случайно выбирает действие из bank, играет.
+// Будущее: LLM Director, физика, pathfinding, Mixamo+Hunyuan banks.
+let autonomousOn = false;
+let autonomousTimer = null;
+
+// Все действия (idle + жесты) объединённые с весами рандомного выбора
+const AUTO_POOL = [
+  { name: 'Relax', weight: 4, type: 'idle' },
+  { name: 'LookAround', weight: 5, type: 'idle' },
+  { name: 'Thinking', weight: 3, type: 'idle' },
+  { name: 'Sleepy', weight: 2, type: 'idle' },
+  { name: 'Blush', weight: 2, type: 'gesture' },
+  { name: 'Goodbye', weight: 2, type: 'gesture' },
+  { name: 'Clapping', weight: 2, type: 'gesture' },
+  { name: 'Surprised', weight: 1, type: 'gesture' },
+  { name: 'Jump', weight: 1, type: 'gesture' },
+  { name: 'Angry', weight: 1, type: 'gesture' },
+  { name: 'Sad', weight: 1, type: 'gesture' },
+];
+
+function pickWeighted(pool) {
+  const total = pool.reduce((s, p) => s + p.weight, 0);
+  let r = Math.random() * total;
+  for (const p of pool) {
+    r -= p.weight;
+    if (r <= 0) return p;
+  }
+  return pool[0];
+}
+
+function autonomousStep() {
+  if (!autonomousOn || !mixer || !currentVrm) return;
+  const choice = pickWeighted(AUTO_POOL.filter(p => clipBank[p.name]));
+  if (!choice) return;
+
+  const clip = clipBank[choice.name];
+  const action = mixer.clipAction(clip);
+  if (choice.type === 'idle') {
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    idleAction = action;
+    inGesture = false;
+  } else {
+    action.setLoop(THREE.LoopOnce, 1);
+    action.clampWhenFinished = false;
+    inGesture = true;
+  }
+  // случайная скорость для уникальности (0.8 - 1.2×)
+  const speed = 0.8 + Math.random() * 0.4;
+  action.timeScale = speed;
+  crossfadeTo(action, 0.5);
+  setStat('🤖 ' + choice.name + ' ×' + speed.toFixed(2));
+
+  // следующий step через 8-20 сек
+  const delay = 8000 + Math.random() * 12000;
+  autonomousTimer = setTimeout(autonomousStep, delay);
+}
+
+function setAutonomous(on) {
+  autonomousOn = !!on;
+  if (autonomousTimer) { clearTimeout(autonomousTimer); autonomousTimer = null; }
+  if (autonomousOn) {
+    setStat('🤖 Autonomous ON');
+    autonomousStep();
+  } else {
+    setStat('Autonomous OFF');
+  }
+}
+
 window.Miku = {
   loadVrm: (path) => loadVrm(path),
   setLipSync: (amp) => {
@@ -405,6 +497,7 @@ window.Miku = {
   playGesture: (name) => playGesture(name),
   listGestures: () => VRMA_LIST.slice(),
   playAiMotion: (fbxBase64, label) => playAiMotion(fbxBase64, label),
+  setAutonomous: (on) => setAutonomous(on),
 };
 
 loadVrm('../vrm/miku.vrm');
