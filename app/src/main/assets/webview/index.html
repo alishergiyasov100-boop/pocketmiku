@@ -74,15 +74,17 @@ const IDLE_CLIP = 'Relax';
 const VRMA_LIST = ['Relax', 'Angry', 'Blush', 'Clapping', 'Goodbye', 'Jump',
                    'LookAround', 'Sad', 'Sleepy', 'Surprised', 'Thinking'];
 
-// Один loader — поддерживает и VRM, и VRMA через два plugin'а
-const gltfLoader = new GLTFLoader();
-gltfLoader.register((parser) => new VRMLoaderPlugin(parser));
-gltfLoader.register((parser) => new VRMAnimationLoaderPlugin(parser));
+// ДВА разных loader'а — VRMLoaderPlugin и VRMAnimationLoaderPlugin
+// нельзя на одном GLTFLoader (VRMLoaderPlugin перехватывает VRMA как VRM).
+const vrmLoader = new GLTFLoader();
+vrmLoader.register((parser) => new VRMLoaderPlugin(parser));
+const vrmaLoader = new GLTFLoader();
+vrmaLoader.register((parser) => new VRMAnimationLoaderPlugin(parser));
 
 async function loadVrm(url) {
   try {
     setStat('loading vrm…');
-    const gltf = await gltfLoader.loadAsync(url, (ev) => {
+    const gltf = await vrmLoader.loadAsync(url, (ev) => {
       if (ev.total) setStat('vrm ' + Math.round(100 * ev.loaded / ev.total) + '%');
     });
     const vrm = gltf.userData.vrm;
@@ -137,7 +139,7 @@ async function loadVrma(name) {
   const url = '../animations/' + name + '.vrma';
   let gltf;
   try {
-    gltf = await gltfLoader.loadAsync(url);
+    gltf = await vrmaLoader.loadAsync(url);
   } catch (e) {
     throw new Error('fetch fail ' + name + ': ' + (e?.message || e));
   }
