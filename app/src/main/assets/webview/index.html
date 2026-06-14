@@ -181,18 +181,52 @@ async function loadVrma(name) {
   }
 }
 
+// 21 free FBX motions from J-Beardmore/FreeMotionPack1
+const FBX_LIST = [
+  'Celebrate1', 'Celebrate2', 'Celebrate3',
+  'ComeHere1', 'ComeHere2', 'ComeHere3',
+  'GoAwayAngry', 'GoAwayAnnoyed', 'GoAwayQuickly',
+  'HandsOnHead',
+  'NodYes1', 'ShakeHeadNo1',
+  'StopOneHand1', 'StopOneHand2', 'StopTwoHand1', 'StopTwoHand2',
+  'ThumbsDown1', 'ThumbsDown2', 'ThumbsUp1',
+  // MiddleFinger1/2 пропускаем — не для autonomous
+];
+
+async function loadFbxMotion(name) {
+  const url = '../motions/' + name + '.fbx';
+  const loader = new FBXLoader();
+  const fbxGroup = await loader.loadAsync(url);
+  if (!fbxGroup.animations || fbxGroup.animations.length === 0) {
+    throw new Error('no animations in ' + name);
+  }
+  return retargetFbxToVrm(fbxGroup, currentVrm);
+}
+
 async function preloadClips() {
   let loaded = 0;
   let firstErr = '';
+  // 1) VRMA clips
   for (const name of VRMA_LIST) {
     try {
       const clip = await loadVrma(name);
       clipBank[name] = clip;
       loaded++;
-      setStat('clips ' + loaded + '/' + VRMA_LIST.length);
+      setStat('clips ' + loaded);
     } catch (e) {
       if (!firstErr) firstErr = (e?.message || e) + '';
       console.error('clip ' + name + ' failed:', e);
+    }
+  }
+  // 2) FBX motions (Mixamo-compatible)
+  for (const name of FBX_LIST) {
+    try {
+      const clip = await loadFbxMotion(name);
+      clipBank[name] = clip;
+      loaded++;
+      setStat('clips ' + loaded);
+    } catch (e) {
+      console.error('fbx ' + name + ' failed:', e);
     }
   }
   if (loaded === 0 && firstErr) showErr('VRMA: ' + firstErr);
@@ -416,17 +450,35 @@ let autonomousTimer = null;
 
 // Все действия (idle + жесты) объединённые с весами рандомного выбора
 const AUTO_POOL = [
-  { name: 'Relax', weight: 4, type: 'idle' },
-  { name: 'LookAround', weight: 5, type: 'idle' },
+  // VRMA idle (короткие loop)
+  { name: 'Relax', weight: 3, type: 'idle' },
+  { name: 'LookAround', weight: 4, type: 'idle' },
   { name: 'Thinking', weight: 3, type: 'idle' },
-  { name: 'Sleepy', weight: 2, type: 'idle' },
+  { name: 'Sleepy', weight: 1, type: 'idle' },
+  // VRMA gestures
   { name: 'Blush', weight: 2, type: 'gesture' },
   { name: 'Goodbye', weight: 2, type: 'gesture' },
   { name: 'Clapping', weight: 2, type: 'gesture' },
   { name: 'Surprised', weight: 1, type: 'gesture' },
   { name: 'Jump', weight: 1, type: 'gesture' },
-  { name: 'Angry', weight: 1, type: 'gesture' },
-  { name: 'Sad', weight: 1, type: 'gesture' },
+  // FBX mocap motions (FreeMotionPack1)
+  { name: 'Celebrate1', weight: 2, type: 'gesture' },
+  { name: 'Celebrate2', weight: 2, type: 'gesture' },
+  { name: 'Celebrate3', weight: 2, type: 'gesture' },
+  { name: 'ComeHere1', weight: 2, type: 'gesture' },
+  { name: 'ComeHere2', weight: 2, type: 'gesture' },
+  { name: 'ComeHere3', weight: 2, type: 'gesture' },
+  { name: 'GoAwayAngry', weight: 1, type: 'gesture' },
+  { name: 'GoAwayAnnoyed', weight: 1, type: 'gesture' },
+  { name: 'GoAwayQuickly', weight: 1, type: 'gesture' },
+  { name: 'HandsOnHead', weight: 2, type: 'gesture' },
+  { name: 'NodYes1', weight: 3, type: 'gesture' },
+  { name: 'ShakeHeadNo1', weight: 2, type: 'gesture' },
+  { name: 'StopOneHand1', weight: 1, type: 'gesture' },
+  { name: 'StopOneHand2', weight: 1, type: 'gesture' },
+  { name: 'StopTwoHand1', weight: 1, type: 'gesture' },
+  { name: 'ThumbsUp1', weight: 2, type: 'gesture' },
+  { name: 'ThumbsDown1', weight: 1, type: 'gesture' },
 ];
 
 function pickWeighted(pool) {

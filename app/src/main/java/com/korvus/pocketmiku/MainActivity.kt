@@ -84,12 +84,10 @@ class MainActivity : ComponentActivity() {
                     // VRMA — отдельная обработка, AssetLoader путает MIME
                     if (url.endsWith(".vrma")) {
                         val name = url.substringAfterLast('/').removeSuffix(".vrma")
-                        Log.i("VrmAvatar", "VRMA request url=$url name=$name")
                         return try {
                             val bytes = view.context.assets
                                 .open("animations/$name.vrma")
                                 .use { it.readBytes() }
-                            Log.i("VrmAvatar", "VRMA $name size=${bytes.size}")
                             WebResourceResponse(
                                 "application/octet-stream", null, 200, "OK",
                                 mapOf("Access-Control-Allow-Origin" to "*"),
@@ -97,6 +95,23 @@ class MainActivity : ComponentActivity() {
                             )
                         } catch (e: Exception) {
                             Log.e("VrmAvatar", "vrma open failed for $name: $e")
+                            null
+                        }
+                    }
+                    // FBX motions (Mixamo/FreeMotionPack1) — отдельный handler
+                    if (url.endsWith(".fbx")) {
+                        val name = url.substringAfterLast('/').removeSuffix(".fbx")
+                        return try {
+                            val bytes = view.context.assets
+                                .open("motions/$name.fbx")
+                                .use { it.readBytes() }
+                            WebResourceResponse(
+                                "application/octet-stream", null, 200, "OK",
+                                mapOf("Access-Control-Allow-Origin" to "*"),
+                                ByteArrayInputStream(bytes),
+                            )
+                        } catch (e: Exception) {
+                            Log.e("VrmAvatar", "fbx open failed for $name: $e")
                             null
                         }
                     }
