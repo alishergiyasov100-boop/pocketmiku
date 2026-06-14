@@ -13,8 +13,8 @@ android {
         applicationId = "com.korvus.pocketmiku"
         minSdk = 26
         targetSdk = 34
-        versionCode = 13
-        versionName = "0.2.0"
+        versionCode = 14
+        versionName = "0.2.1"
     }
 
     buildTypes {
@@ -34,7 +34,7 @@ android {
 
     // Чтобы 44MB .vrm и 61MB .onnx не сжимались (AssetManager быстрее открывает)
     androidResources {
-        noCompress += listOf("vrm", "onnx", "json")
+        noCompress += listOf("vrm", "vrma", "onnx", "json")
     }
 }
 

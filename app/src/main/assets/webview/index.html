@@ -47,47 +47,44 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.25;
 renderer.setClearColor(0x0A0612, 1);
 
-setStat('GL ' + canvas.width + 'x' + canvas.height + ' pr=' + pixelRatio);
-
 const scene = new THREE.Scene();
-
 const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.05, 100);
 camera.position.set(0, 1.35, 1.6);
 camera.lookAt(0, 1.35, 0);
 
 // ── 3-point lighting + rim (как у Ani) ────────────────────────────────────
-// 1) Ambient hemi — общая заливка
-const hemi = new THREE.HemisphereLight(0xFFE9F2, 0x2A1840, 0.9);
-scene.add(hemi);
-
-// 2) Key light — основной (слева сверху, тёплый)
+scene.add(new THREE.HemisphereLight(0xFFE9F2, 0x2A1840, 0.9));
 const keyLight = new THREE.DirectionalLight(0xFFFFFF, 1.5);
-keyLight.position.set(1.2, 2.5, 1.5);
-scene.add(keyLight);
-
-// 3) Fill light — заполняющий (справа, бирюзовый, мягкий)
+keyLight.position.set(1.2, 2.5, 1.5); scene.add(keyLight);
 const fillLight = new THREE.DirectionalLight(0x88FFEE, 0.55);
-fillLight.position.set(-1.5, 1.2, 0.8);
-scene.add(fillLight);
-
-// 4) Rim light — контровой (сзади, розовый, оконтуривает силуэт)
+fillLight.position.set(-1.5, 1.2, 0.8); scene.add(fillLight);
 const rimLight = new THREE.DirectionalLight(0xFF66CC, 1.2);
-rimLight.position.set(-0.5, 2.0, -2.0);
-scene.add(rimLight);
+rimLight.position.set(-0.5, 2.0, -2.0); scene.add(rimLight);
 
 let currentVrm = null;
+let mixer = null;
+// {name: AnimationClip} — preloaded VRMA клипы
+const clipBank = {};
+let activeAction = null;
+let idleAction = null;
+const IDLE_CLIP = 'Relax';
+// порядок предзагрузки (Relax первым — он же idle)
+const VRMA_LIST = ['Relax', 'Angry', 'Blush', 'Clapping', 'Goodbye', 'Jump',
+                   'LookAround', 'Sad', 'Sleepy', 'Surprised', 'Thinking'];
+
+// Один loader — поддерживает и VRM, и VRMA через два plugin'а
+const gltfLoader = new GLTFLoader();
+gltfLoader.register((parser) => new VRMLoaderPlugin(parser));
+gltfLoader.register((parser) => new VRMAnimationLoaderPlugin(parser));
 
 async function loadVrm(url) {
   try {
     setStat('loading vrm…');
-    const loader = new GLTFLoader();
-    loader.register((parser) => new VRMLoaderPlugin(parser));
-
-    const gltf = await loader.loadAsync(url, (ev) => {
+    const gltf = await gltfLoader.loadAsync(url, (ev) => {
       if (ev.total) setStat('vrm ' + Math.round(100 * ev.loaded / ev.total) + '%');
     });
     const vrm = gltf.userData.vrm;
-    if (!vrm) { showErr('vrm meta missing'); setStat('no vrm meta'); return; }
+    if (!vrm) { showErr('vrm meta missing'); return; }
 
     VRMUtils.removeUnnecessaryVertices(gltf.scene);
     VRMUtils.removeUnnecessaryJoints(gltf.scene);
@@ -97,7 +94,6 @@ async function loadVrm(url) {
         if (o.material) {
           const mats = Array.isArray(o.material) ? o.material : [o.material];
           mats.forEach((m) => {
-            // Boost emissive чтобы Мику немного "светилась" сама — менее плоско
             if (m.emissive) m.emissive.setHex(0x1A1A22);
             if (m.emissiveIntensity !== undefined) m.emissiveIntensity = 0.3;
           });
@@ -110,6 +106,13 @@ async function loadVrm(url) {
     vrm.scene.rotation.y = Math.PI;
     scene.add(vrm.scene);
     currentVrm = vrm;
+    mixer = new THREE.AnimationMixer(vrm.scene);
+    // Когда non-idle клип заканчивается — возврат в idle
+    mixer.addEventListener('finished', () => {
+      if (idleAction) {
+        crossfadeTo(idleAction);
+      }
+    });
 
     const bbox = new THREE.Box3().setFromObject(vrm.scene);
     const size = new THREE.Vector3();
@@ -118,213 +121,64 @@ async function loadVrm(url) {
     camera.position.set(0, headY, size.y * 1.0);
     camera.lookAt(0, headY - size.y * 0.08, 0);
 
-    saveInitialPose(vrm);
-
+    setStat('loading clips…');
+    await preloadClips();
     if (window.MikuBridge) window.MikuBridge.onVrmLoaded(vrm.meta?.name || 'Miku');
   } catch (e) {
     showErr('vrm load: ' + (e?.stack || e?.message || e));
-    setStat('vrm FAILED');
   }
 }
 
-// ── Procedural idle: дыхание / sway / руки / голова ─────────────────────
-const initialPose = {};
-function saveInitialPose(vrm) {
-  if (!vrm.humanoid) return;
-  ['spine', 'chest', 'upperChest', 'neck', 'head',
-   'leftUpperArm', 'leftLowerArm', 'rightUpperArm', 'rightLowerArm',
-   'leftShoulder', 'rightShoulder'].forEach((name) => {
-    const b = vrm.humanoid.getNormalizedBoneNode(name);
-    if (b) initialPose[name] = { x: b.rotation.x, y: b.rotation.y, z: b.rotation.z };
-  });
-  // Расслабляем плечи (T-poza ужас — руки опускаем вниз)
-  const lUpper = vrm.humanoid.getNormalizedBoneNode('leftUpperArm');
-  const rUpper = vrm.humanoid.getNormalizedBoneNode('rightUpperArm');
-  if (lUpper) { lUpper.rotation.z = 1.25; initialPose.leftUpperArm.z = 1.25; }
-  if (rUpper) { rUpper.rotation.z = -1.25; initialPose.rightUpperArm.z = -1.25; }
-  const lLower = vrm.humanoid.getNormalizedBoneNode('leftLowerArm');
-  const rLower = vrm.humanoid.getNormalizedBoneNode('rightLowerArm');
-  if (lLower) { lLower.rotation.y = 0.15; initialPose.leftLowerArm.y = 0.15; }
-  if (rLower) { rLower.rotation.y = -0.15; initialPose.rightLowerArm.y = -0.15; }
+async function loadVrma(name) {
+  const url = '../animations/' + name + '.vrma';
+  const gltf = await gltfLoader.loadAsync(url);
+  const va = gltf.userData.vrmAnimations?.[0];
+  if (!va) throw new Error('no VRMAnimation in ' + name);
+  return createVRMAnimationClip(va, currentVrm);
 }
 
-function getBone(name) {
-  return currentVrm?.humanoid?.getNormalizedBoneNode(name);
-}
-
-// Лёгкая дискретная "пружина" к target — без overshoot, просто lerp
-function lerpRot(bone, base, dx, dy, dz, k = 1.0) {
-  if (!bone || !base) return;
-  bone.rotation.x = base.x + dx * k;
-  bone.rotation.y = base.y + dy * k;
-  bone.rotation.z = base.z + dz * k;
-}
-
-let gestureUntil = 0;     // время до которого играет жест
-let gestureFn = null;     // активный жест (t → деформации)
-let gestureStart = 0;
-
-function playGesture(name, duration = 2.0) {
-  gestureStart = performance.now() / 1000;
-  gestureUntil = gestureStart + duration;
-  gestureFn = GESTURES[name] || null;
-  if (currentVrm?.expressionManager && GESTURE_EMOTION[name]) {
-    const emo = GESTURE_EMOTION[name];
-    currentVrm.expressionManager.setValue(emo, 0.8);
-    setTimeout(() => {
-      currentVrm?.expressionManager?.setValue(emo, 0.0);
-      currentVrm?.expressionManager?.setValue('neutral', 1.0);
-    }, duration * 1000);
+async function preloadClips() {
+  for (const name of VRMA_LIST) {
+    try {
+      const clip = await loadVrma(name);
+      clipBank[name] = clip;
+    } catch (e) {
+      console.error('clip ' + name + ' failed:', e);
+    }
+  }
+  // запускаем idle
+  if (clipBank[IDLE_CLIP] && mixer) {
+    idleAction = mixer.clipAction(clipBank[IDLE_CLIP]);
+    idleAction.setLoop(THREE.LoopRepeat, Infinity);
+    idleAction.play();
+    activeAction = idleAction;
   }
 }
 
-const GESTURE_EMOTION = {
-  wave: 'happy', heart: 'happy', kiss: 'happy', peace: 'happy', dance: 'happy',
-  shy: 'sad', sad: 'sad', cry: 'sad',
-  angry: 'angry', pout: 'angry',
-  surprised: 'surprised', shocked: 'surprised',
-  nod: 'neutral', shrug: 'neutral', think: 'neutral',
-};
-
-// ── Жесты (procedural, без VMD) ───────────────────────────────────────────
-const GESTURES = {
-  wave: (t, p) => {
-    // правая рука поднимается и машет
-    const lift = Math.min(1, t * 3);
-    const swing = Math.sin(t * 8) * 0.4;
-    lerpRot(getBone('rightUpperArm'), p.rightUpperArm, 0, 0, 1.0 * lift, 1);
-    lerpRot(getBone('rightLowerArm'), p.rightLowerArm, 0, 0, -0.4 + swing, 1);
-  },
-  nod: (t, p) => {
-    const nod = Math.sin(t * 6) * 0.2;
-    lerpRot(getBone('head'), p.head, nod, 0, 0, 1);
-    lerpRot(getBone('neck'), p.neck, nod * 0.5, 0, 0, 1);
-  },
-  shake: (t, p) => {
-    const sh = Math.sin(t * 7) * 0.25;
-    lerpRot(getBone('head'), p.head, 0, sh, 0, 1);
-    lerpRot(getBone('neck'), p.neck, 0, sh * 0.5, 0, 1);
-  },
-  heart: (t, p) => {
-    // обе руки к сердцу, головой ласково набок
-    const lift = Math.min(1, t * 2);
-    lerpRot(getBone('leftUpperArm'), p.leftUpperArm, -0.6 * lift, 0, -0.7 * lift, 1);
-    lerpRot(getBone('rightUpperArm'), p.rightUpperArm, -0.6 * lift, 0, 0.7 * lift, 1);
-    lerpRot(getBone('leftLowerArm'), p.leftLowerArm, 0, 0.6 * lift, 0, 1);
-    lerpRot(getBone('rightLowerArm'), p.rightLowerArm, 0, -0.6 * lift, 0, 1);
-    lerpRot(getBone('head'), p.head, 0.1, 0, 0.15, 1);
-  },
-  kiss: (t, p) => {
-    // подносит руку к губам и шлёт поцелуй
-    const lift = Math.min(1, t * 2.5);
-    const blow = t > 0.7 ? Math.sin((t - 0.7) * 15) * 0.1 : 0;
-    lerpRot(getBone('rightUpperArm'), p.rightUpperArm, -1.0 * lift, 0, 0.6 * lift, 1);
-    lerpRot(getBone('rightLowerArm'), p.rightLowerArm, 0, -0.8 * lift, 0, 1);
-    lerpRot(getBone('head'), p.head, blow, 0, 0, 1);
-  },
-  peace: (t, p) => {
-    // V-знак правой рукой у лица
-    const lift = Math.min(1, t * 2);
-    lerpRot(getBone('rightUpperArm'), p.rightUpperArm, -0.8 * lift, 0, 0.5 * lift, 1);
-    lerpRot(getBone('rightLowerArm'), p.rightLowerArm, 0, -0.9 * lift, 0, 1);
-  },
-  shrug: (t, p) => {
-    // плечи вверх, руки в стороны
-    const lift = Math.min(1, t * 3) * Math.max(0, 1 - t * 0.5);
-    lerpRot(getBone('leftShoulder'), p.leftShoulder, 0, 0, 0.3 * lift, 1);
-    lerpRot(getBone('rightShoulder'), p.rightShoulder, 0, 0, -0.3 * lift, 1);
-    lerpRot(getBone('leftUpperArm'), p.leftUpperArm, 0, 0, 0.4 * lift, 1);
-    lerpRot(getBone('rightUpperArm'), p.rightUpperArm, 0, 0, -0.4 * lift, 1);
-  },
-  shy: (t, p) => {
-    // обе руки к лицу, голова вниз
-    const lift = Math.min(1, t * 2);
-    lerpRot(getBone('leftUpperArm'), p.leftUpperArm, -0.9 * lift, 0, -0.5 * lift, 1);
-    lerpRot(getBone('rightUpperArm'), p.rightUpperArm, -0.9 * lift, 0, 0.5 * lift, 1);
-    lerpRot(getBone('head'), p.head, 0.25, 0, 0.08, 1);
-  },
-  think: (t, p) => {
-    // рука у подбородка
-    const lift = Math.min(1, t * 2);
-    lerpRot(getBone('rightUpperArm'), p.rightUpperArm, -0.7 * lift, 0, 0.7 * lift, 1);
-    lerpRot(getBone('rightLowerArm'), p.rightLowerArm, 0, -1.2 * lift, 0, 1);
-    lerpRot(getBone('head'), p.head, -0.05, 0.15, 0, 1);
-  },
-  dance: (t, p) => {
-    // лёгкие танцевальные движения
-    const sway = Math.sin(t * 5) * 0.3;
-    const armBob = Math.sin(t * 5 + Math.PI / 2) * 0.4;
-    lerpRot(getBone('spine'), p.spine, 0, sway * 0.5, 0, 1);
-    lerpRot(getBone('chest'), p.chest, 0, 0, sway * 0.2, 1);
-    lerpRot(getBone('leftUpperArm'), p.leftUpperArm, 0, 0, armBob, 1);
-    lerpRot(getBone('rightUpperArm'), p.rightUpperArm, 0, 0, -armBob, 1);
-  },
-  jump: (t, p) => {
-    // подпрыгивает (translation root)
-    if (!currentVrm) return;
-    const h = Math.max(0, Math.sin(t * 6)) * 0.15;
-    currentVrm.scene.position.y = h;
-    // расслабляем — этот жест добавляет позицию, не bones
-  },
-  surprised: (t, p) => {
-    const lift = Math.min(1, t * 4);
-    lerpRot(getBone('leftUpperArm'), p.leftUpperArm, 0, 0, 0.5 * lift, 1);
-    lerpRot(getBone('rightUpperArm'), p.rightUpperArm, 0, 0, -0.5 * lift, 1);
-    lerpRot(getBone('head'), p.head, -0.15, 0, 0, 1);
-  },
-  cry: (t, p) => {
-    const lift = Math.min(1, t * 2);
-    lerpRot(getBone('leftUpperArm'), p.leftUpperArm, -1.1 * lift, 0, -0.4 * lift, 1);
-    lerpRot(getBone('rightUpperArm'), p.rightUpperArm, -1.1 * lift, 0, 0.4 * lift, 1);
-    lerpRot(getBone('head'), p.head, 0.3, 0, 0, 1);
-  },
-  pout: (t, p) => {
-    const sh = Math.sin(t * 4) * 0.1;
-    lerpRot(getBone('head'), p.head, 0, sh, 0, 1);
-    lerpRot(getBone('leftUpperArm'), p.leftUpperArm, 0, 0, 0.2, 1);
-    lerpRot(getBone('rightUpperArm'), p.rightUpperArm, 0, 0, -0.2, 1);
-  },
-};
-
-// ── Idle: тонкая жизнь — дыхание, sway, лёгкое колебание рук ────────────
-function applyIdle(time) {
-  if (!currentVrm || gestureFn) return;
-  // gentle reset → initial
-  ['spine', 'chest', 'upperChest', 'neck', 'head',
-   'leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm',
-   'leftShoulder', 'rightShoulder'].forEach((n) => {
-    const b = getBone(n); const p = initialPose[n];
-    if (b && p) { b.rotation.x = p.x; b.rotation.y = p.y; b.rotation.z = p.z; }
-  });
-  if (currentVrm.scene) currentVrm.scene.position.y = 0;
-
-  // Дыхание (chest подъём)
-  const breath = Math.sin(time * 1.2) * 0.025;
-  const chest = getBone('chest');
-  if (chest && initialPose.chest) chest.rotation.x = initialPose.chest.x - breath;
-
-  // Sway бёдер
-  const sway = Math.sin(time * 0.7) * 0.04;
-  const spine = getBone('spine');
-  if (spine && initialPose.spine) spine.rotation.y = initialPose.spine.y + sway;
-
-  // Лёгкое колебание рук
-  const armBob = Math.sin(time * 0.9) * 0.05;
-  const lArm = getBone('leftUpperArm'); const rArm = getBone('rightUpperArm');
-  if (lArm && initialPose.leftUpperArm) lArm.rotation.z = initialPose.leftUpperArm.z - armBob;
-  if (rArm && initialPose.rightUpperArm) rArm.rotation.z = initialPose.rightUpperArm.z + armBob;
-
-  // Микро-движения головы
-  const hSway = Math.sin(time * 0.5) * 0.04;
-  const hNod = Math.sin(time * 0.3) * 0.02;
-  const head = getBone('head');
-  if (head && initialPose.head) {
-    head.rotation.x = initialPose.head.x + hNod;
-    head.rotation.y = initialPose.head.y + hSway;
+function crossfadeTo(newAction, duration = 0.35) {
+  if (!newAction || newAction === activeAction) return;
+  newAction.reset();
+  newAction.setEffectiveWeight(1);
+  newAction.enabled = true;
+  if (activeAction) {
+    newAction.crossFadeFrom(activeAction, duration, false);
   }
+  newAction.play();
+  activeAction = newAction;
 }
 
-// ── Random blink с подмигиванием (одного глаза 15% времени) ──────────────
+function playGesture(name) {
+  if (!mixer || !clipBank[name]) {
+    console.error('gesture missing: ' + name);
+    return;
+  }
+  const action = mixer.clipAction(clipBank[name]);
+  action.setLoop(THREE.LoopOnce, 1);
+  action.clampWhenFinished = false;
+  crossfadeTo(action);
+}
+
+// ── Blink с подмигиванием ─────────────────────────────────────────────────
 function scheduleBlink() {
   const delay = 2500 + Math.random() * 3500;
   setTimeout(() => {
@@ -332,11 +186,8 @@ function scheduleBlink() {
       const em = currentVrm.expressionManager;
       const wink = Math.random() < 0.15;
       if (wink) {
-        // Подмигнуть одним глазом (если доступно)
         const eye = Math.random() < 0.5 ? 'blinkLeft' : 'blinkRight';
-        const fallback = 'blink';
         em.setValue(eye, 1.0);
-        em.setValue(fallback, 0);
         setTimeout(() => em.setValue(eye, 0.0), 250);
       } else {
         em.setValue('blink', 1.0);
@@ -351,24 +202,10 @@ scheduleBlink();
 const clock = new THREE.Clock();
 let frameCount = 0;
 let lastFpsT = performance.now();
-let totalTime = 0;
 function tick() {
   const dt = clock.getDelta();
-  totalTime += dt;
-
-  // Procedural idle / активный жест
-  if (currentVrm) {
-    applyIdle(totalTime);
-    if (gestureFn && performance.now() / 1000 < gestureUntil) {
-      const t = performance.now() / 1000 - gestureStart;
-      gestureFn(t, initialPose);
-    } else if (gestureFn) {
-      gestureFn = null;
-      if (currentVrm.scene) currentVrm.scene.position.y = 0;
-    }
-    currentVrm.update(dt);
-  }
-
+  if (mixer) mixer.update(dt);
+  if (currentVrm) currentVrm.update(dt);
   renderer.render(scene, camera);
   frameCount++;
   const now = performance.now();
@@ -405,10 +242,8 @@ window.Miku = {
       THREE.MathUtils.degToRad(pitchDeg),
       THREE.MathUtils.degToRad(yawDeg), 0);
   },
-  // Новое: запустить именованный жест
-  playGesture: (name, duration) => playGesture(name, duration || 2.0),
-  // Список доступных жестов
-  listGestures: () => Object.keys(GESTURES),
+  playGesture: (name) => playGesture(name),
+  listGestures: () => VRMA_LIST.slice(),
 };
 
 loadVrm('../vrm/miku.vrm');

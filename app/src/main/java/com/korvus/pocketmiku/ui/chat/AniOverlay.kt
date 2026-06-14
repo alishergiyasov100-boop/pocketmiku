@@ -287,20 +287,17 @@ private fun AskAnythingPill(
 private data class GestureChip(val emoji: String, val name: String, val label: String)
 
 private val GESTURES = listOf(
-    GestureChip("👋", "wave", "wave"),
-    GestureChip("💕", "heart", "heart"),
-    GestureChip("😘", "kiss", "kiss"),
-    GestureChip("✌", "peace", "peace"),
-    GestureChip("🤔", "think", "think"),
-    GestureChip("😳", "shy", "shy"),
-    GestureChip("😲", "surprised", "wow"),
-    GestureChip("😢", "cry", "cry"),
-    GestureChip("😤", "pout", "pout"),
-    GestureChip("🤷", "shrug", "shrug"),
-    GestureChip("💃", "dance", "dance"),
-    GestureChip("⬆", "jump", "jump"),
-    GestureChip("🙂", "nod", "yes"),
-    GestureChip("🙅", "shake", "no"),
+    GestureChip("👋", "Goodbye", "wave"),
+    GestureChip("👏", "Clapping", "clap"),
+    GestureChip("⬆", "Jump", "jump"),
+    GestureChip("👀", "LookAround", "look"),
+    GestureChip("🤔", "Thinking", "think"),
+    GestureChip("😳", "Blush", "blush"),
+    GestureChip("😲", "Surprised", "wow"),
+    GestureChip("😢", "Sad", "sad"),
+    GestureChip("😴", "Sleepy", "sleepy"),
+    GestureChip("😠", "Angry", "angry"),
+    GestureChip("😌", "Relax", "relax"),
 )
 
 @Composable

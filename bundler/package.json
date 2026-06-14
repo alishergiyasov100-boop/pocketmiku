@@ -1,6 +1,7 @@
 { "name": "miku-bundle", "version": "1.0.0", "private": true,
   "dependencies": {
     "three": "0.158.0",
-    "@pixiv/three-vrm": "2.1.2"
+    "@pixiv/three-vrm": "2.1.2",
+    "@pixiv/three-vrm-animation": "2.1.2"
   }
 }
