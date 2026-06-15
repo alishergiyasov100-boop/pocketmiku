@@ -757,6 +757,8 @@ async function loadVrm(url) {
     setStat('loading clips…');
     await preloadClips();
     if (window.MikuBridge) window.MikuBridge.onVrmLoaded(vrm.meta?.name || 'Miku');
+    // Auto-start MoMask brain — Mura постоянно генерит свежие AI-анимации
+    setTimeout(() => setAutonomous(true), 1500);
   } catch (e) {
     showErr('vrm load: ' + (e?.stack || e?.message || e));
   }
@@ -1133,41 +1135,61 @@ function pickWeighted(pool) {
   return pool[0];
 }
 
-function autonomousStep() {
-  if (!autonomousOn || !mixer || !currentVrm) return;
-  const choice = pickWeighted(AUTO_POOL.filter(p => clipBank[p.name]));
-  if (!choice) return;
+// ── Autonomous MoMask brain: постоянная генерация AI motion, без пресетов ─
+const MOMASK_AUTO_POOL = [
+  'a person stands still and breathes calmly',
+  'a person looks around the room curiously',
+  'a person stretches their arms above their head',
+  'a person waves their right hand cheerfully',
+  'a person dances playfully in place',
+  'a person sits down on the floor cross-legged',
+  'a person spins slowly to the left',
+  'a person nods their head twice',
+  'a person points at something in front of them',
+  'a person jumps once in place',
+  'a person yawns and stretches their back',
+  'a person claps their hands three times',
+  'a person bows politely',
+  'a person scratches their head thoughtfully',
+  'a person hops from foot to foot',
+  'a person tilts their head curiously',
+  'a person crosses their arms and thinks',
+  'a person stretches one leg to the side',
+  'a person reaches forward with both hands',
+  'a person kneels down and stands up',
+];
 
-  const clip = clipBank[choice.name];
-  const action = mixer.clipAction(clip);
-  if (choice.type === 'idle') {
-    action.setLoop(THREE.LoopRepeat, Infinity);
-    idleAction = action;
-    inGesture = false;
-  } else {
-    action.setLoop(THREE.LoopOnce, 1);
-    action.clampWhenFinished = false;
-    inGesture = true;
+async function autonomousStep() {
+  if (!autonomousOn || !currentVrm) return;
+  let nextDelay = 5000;
+  try {
+    const prompt = MOMASK_AUTO_POOL[Math.floor(Math.random() * MOMASK_AUTO_POOL.length)];
+    const length = 60 + Math.floor(Math.random() * 60); // 3-6 секунд @ 20fps
+    setStat('🤖 ' + prompt.slice(0, 40));
+    const m = await callMomask(prompt, length);
+    if (m && Array.isArray(m.data)) {
+      playMomaskJoints(m.data, 20);
+      nextDelay = Math.round((length / 20) * 1000) + 200; // ждём длительность motion
+    } else {
+      nextDelay = 3000;
+    }
+  } catch (e) {
+    setStat('🤖 momask err: ' + String(e).slice(0, 60));
+    nextDelay = 4000;
   }
-  // случайная скорость для уникальности (0.8 - 1.2×)
-  const speed = 0.8 + Math.random() * 0.4;
-  action.timeScale = speed;
-  crossfadeTo(action, 0.5);
-  setStat('🤖 ' + choice.name + ' ×' + speed.toFixed(2));
-
-  // следующий step через 8-20 сек
-  const delay = 8000 + Math.random() * 12000;
-  autonomousTimer = setTimeout(autonomousStep, delay);
+  if (autonomousOn) {
+    autonomousTimer = setTimeout(autonomousStep, nextDelay);
+  }
 }
 
 function setAutonomous(on) {
   autonomousOn = !!on;
   if (autonomousTimer) { clearTimeout(autonomousTimer); autonomousTimer = null; }
   if (autonomousOn) {
-    setStat('🤖 Autonomous ON');
+    setStat('🤖 MoMask brain ON');
     autonomousStep();
   } else {
-    setStat('Autonomous OFF');
+    setStat('MoMask brain OFF');
   }
 }
 
