@@ -402,58 +402,123 @@ function applyMomaskFrame(frame) {
 }
 
 function tickMomaskPlayback() {
-  if (!momaskPlayback || !skelGroup) return;
+  if (!momaskPlayback) return;
   const { joints, fps, T, t0 } = momaskPlayback;
   const elapsed = (performance.now() - t0) / 1000;
   const idx = Math.floor(elapsed * fps);
   if (idx >= T) { momaskPlayback = null; return; }
-  const f = joints[idx];
-  // Update spheres
-  for (let i=0; i<22 && i<f.length; i++){
-    skelJoints[i].position.set(f[i][0], f[i][1], f[i][2]);
+  applyMomaskFrameVRM(joints[idx]);
+}
+
+// ── MoMask → VRM retarget via per-bone frame basis (x,y,z axes from joint geometry) ──
+// HumanML3D 22-joint SMPL topology:
+//   0=hip, 1=lhip, 2=rhip, 3=spine1, 4=lknee, 5=rknee, 6=spine2, 7=lankle, 8=rankle,
+//   9=spine3, 10=lfoot, 11=rfoot, 12=neck, 13=lcollar, 14=rcollar, 15=head,
+//   16=lshoulder, 17=rshoulder, 18=lelbow, 19=relbow, 20=lwrist, 21=rwrist
+// Per bone: [vrmBone, parentJoint, childJoint, twistA, twistB] — Y axis = parent→child,
+// X axis from cross with (twistB - twistA).  End bones reuse parent's twist ref.
+const VRM_BONES = [
+  ['hips',           0,  3,  1,  2],
+  ['spine',          3,  6,  16, 17],
+  ['chest',          6,  9,  16, 17],
+  ['upperChest',     9,  12, 16, 17],
+  ['neck',           12, 15, 16, 17],
+  ['head',           15, 15, 16, 17],   // end: align with neck
+  ['leftUpperArm',   16, 18, 17, 9],
+  ['leftLowerArm',   18, 20, 16, 9],
+  ['leftHand',       20, 20, 18, 16],   // end
+  ['rightUpperArm',  17, 19, 16, 9],
+  ['rightLowerArm',  19, 21, 17, 9],
+  ['rightHand',      21, 21, 19, 17],
+  ['leftUpperLeg',   1,  4,  2,  3],
+  ['leftLowerLeg',   4,  7,  1,  2],
+  ['leftFoot',       7,  10, 1,  2],
+  ['rightUpperLeg',  2,  5,  1,  3],
+  ['rightLowerLeg',  5,  8,  2,  1],
+  ['rightFoot',      8,  11, 2,  1],
+];
+
+let restWorldQuats = null;   // rest world-space quaternion per VRM bone
+let parentRestInv  = null;   // inverse rest world quat of each bone's PARENT
+let pelvisRestY    = 0.95;
+
+function captureRestPose() {
+  if (!currentVrm?.humanoid) return;
+  restWorldQuats = {};
+  parentRestInv  = {};
+  const q = new THREE.Quaternion();
+  for (const [bone] of VRM_BONES) {
+    const node = currentVrm.humanoid.getNormalizedBoneNode(bone);
+    if (!node) continue;
+    node.getWorldQuaternion(q);
+    restWorldQuats[bone] = q.clone();
+    const pq = new THREE.Quaternion();
+    if (node.parent) node.parent.getWorldQuaternion(pq);
+    parentRestInv[bone] = pq.invert();
   }
-  // Update lines
-  for (const b of skelBones){
-    const c = f[b.child], p = f[b.parent];
-    if (!c || !p) continue;
-    const pts = [
-      new THREE.Vector3(p[0], p[1], p[2]),
-      new THREE.Vector3(c[0], c[1], c[2]),
-    ];
-    b.line.geometry.setFromPoints(pts);
+  const hips = currentVrm.humanoid.getNormalizedBoneNode('hips');
+  if (hips) {
+    const wp = new THREE.Vector3();
+    hips.getWorldPosition(wp);
+    pelvisRestY = wp.y;
   }
 }
 
-// ── MoMask skeleton viz: stick figure that follows joints ─────────────
-// 22-joint SMPL parent topology
-const SKEL_PARENTS = [-1, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 12, 13, 14, 16, 17, 18, 19];
-let skelGroup = null;
-let skelJoints = [];
-let skelBones = [];
-function ensureSkeletonViz() {
-  if (skelGroup) return;
-  skelGroup = new THREE.Group();
-  scene.add(skelGroup);
-  // Place skeleton next to Mura, slightly elevated. HumanML3D pelvis ~y=0.9
-  skelGroup.position.set(-1.2, 0.05, 0.2);
-  const jointMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
-  const boneMat  = new THREE.LineBasicMaterial({ color: 0xff33aa, linewidth: 4 });
-  for (let i=0; i<22; i++){
-    const s = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 10), jointMat);
-    skelGroup.add(s); skelJoints.push(s);
+const _vx = new THREE.Vector3(), _vy = new THREE.Vector3(), _vz = new THREE.Vector3();
+const _vr = new THREE.Vector3();
+const _mtx = new THREE.Matrix4();
+const _qw = new THREE.Quaternion();
+const _qp = new THREE.Quaternion();
+const _qd = new THREE.Quaternion();
+
+function jvec(f, i) { return _vr.set(f[i][0], f[i][1], f[i][2]); }
+
+function applyMomaskFrameVRM(f) {
+  if (!currentVrm?.humanoid || !restWorldQuats) return;
+  const hum = currentVrm.humanoid;
+  for (const [bone, pIdx, cIdx, tA, tB] of VRM_BONES) {
+    const node = hum.getNormalizedBoneNode(bone);
+    if (!node) continue;
+    // Y axis = parent → child direction (bone length axis)
+    _vy.set(f[cIdx][0]-f[pIdx][0], f[cIdx][1]-f[pIdx][1], f[cIdx][2]-f[pIdx][2]);
+    if (_vy.lengthSq() < 1e-6) {
+      // End bone: reuse parent's rotation
+      node.quaternion.set(0,0,0,1);
+      continue;
+    }
+    _vy.normalize();
+    // Reference vector for twist plane
+    _vr.set(f[tB][0]-f[tA][0], f[tB][1]-f[tA][1], f[tB][2]-f[tA][2]);
+    // X axis perpendicular to Y, in plane of ref
+    _vx.crossVectors(_vy, _vr);
+    if (_vx.lengthSq() < 1e-6) {
+      // ref colinear with Y — pick a default
+      _vx.set(1,0,0);
+      if (Math.abs(_vy.dot(_vx)) > 0.95) _vx.set(0,0,1);
+      _vx.sub(_vy.clone().multiplyScalar(_vy.dot(_vx))).normalize();
+    } else _vx.normalize();
+    _vz.crossVectors(_vx, _vy).normalize();
+    // Build target world rotation from basis
+    _mtx.makeBasis(_vx, _vy, _vz);
+    _qw.setFromRotationMatrix(_mtx);
+    // local = parent.world.inverse() * world_target * rest_world.inverse() then re-apply rest local?
+    // Simpler: rotation delta from rest = _qw * restWorldQuats[bone].inverse()
+    // local delta applied to node = parentRestInv * delta_world * parentRest (conjugation), but
+    // since we want world(bone) = target, and base rest is captured, local rotation =
+    //   parent.world.inverse() * _qw
+    if (node.parent) node.parent.getWorldQuaternion(_qp);
+    else _qp.set(0,0,0,1);
+    _qd.copy(_qp).invert().multiply(_qw);
+    node.quaternion.slerp(_qd, 0.7);
   }
-  for (let i=1; i<22; i++){
-    const g = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,0),
-    ]);
-    const ln = new THREE.Line(g, boneMat);
-    skelGroup.add(ln); skelBones.push({ line:ln, child:i, parent:SKEL_PARENTS[i] });
-  }
+  // Pelvis world position — keep X/Z at charState, Y from joint 0
+  const hips = hum.getNormalizedBoneNode('hips');
+  if (hips) hips.position.y = (f[0][1] - 0) + 0; // direct y from HML pelvis
 }
 
 function playMomaskJoints(joints, fps=20) {
-  if (!Array.isArray(joints) || !joints.length) return false;
-  ensureSkeletonViz();
+  if (!Array.isArray(joints) || !joints.length || !currentVrm?.humanoid) return false;
+  if (!restWorldQuats) captureRestPose();
   momaskPlayback = { joints, fps, T: joints.length, t0: performance.now() };
   return true;
 }
@@ -942,9 +1007,9 @@ let frameCount = 0;
 let lastFpsT = performance.now();
 function tick() {
   const dt = clock.getDelta();
-  // VRM не двигаем bones (retarget кривой) — играем skeleton viz рядом
+  // MoMask drives VRM bones directly. Mixer paused during MoMask playback.
   if (momaskPlayback) tickMomaskPlayback();
-  if (mixer) mixer.update(dt);
+  else if (mixer) mixer.update(dt);
   if (currentVrm) currentVrm.update(dt);
   applyCharPose();
   stepPhysics(dt);
