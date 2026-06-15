@@ -56,6 +56,8 @@ class MainActivity : ComponentActivity() {
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
             settings.setSupportZoom(false)
+            // Allow http://127.0.0.1:8765 (Luna) and trycloudflare http URLs from https page
+            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             setBackgroundColor(0xFF0A0612.toInt())
 
             addJavascriptInterface(MikuBridge(), "MikuBridge")

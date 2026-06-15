@@ -14,33 +14,12 @@
          z-index: 9999; white-space: pre-wrap; word-break: break-all; }
   #stat { position: fixed; right: 8px; top: 60px; color: #36DBC0; font: 11px/1.3 monospace;
           background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 4px; z-index: 9999; }
-  #cmdbar { position: fixed; left: 8px; right: 8px; bottom: 12px; z-index: 9999;
-            display: flex; gap: 6px; }
-  #cmd { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 8px;
-         border: 1px solid #ff66cc88; background: rgba(20,8,30,0.85); color: #fff;
-         font: 14px/1.2 sans-serif; outline: none; }
-  #cmd:focus { border-color: #ff66cc; }
-  #send { padding: 10px 14px; border-radius: 8px; border: 0; cursor: pointer;
-          background: #ff66cc; color: #fff; font: bold 14px/1 sans-serif; }
-  #send:active { background: #cc4499; }
-  #hist { position: fixed; left: 8px; right: 8px; bottom: 64px; z-index: 9998;
-          max-height: 30vh; overflow-y: auto; color: #f0e6ff; font: 11px/1.4 monospace;
-          background: rgba(0,0,0,0.55); padding: 6px 10px; border-radius: 6px;
-          display: none; }
-  #hist.on { display: block; }
-  #hist .u { color: #66e6ff; }
-  #hist .a { color: #ff99dd; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="err" style="display:none"></div>
 <div id="stat">booting…</div>
-<div id="hist"></div>
-<div id="cmdbar">
-  <input id="cmd" type="text" placeholder="скажи Муре что делать… (или /help)" autocomplete="off" />
-  <button id="send">▶</button>
-</div>
 
 <script src="miku-bundle.min.js"></script>
 <script>
@@ -661,15 +640,9 @@ window.PocketWaifu = {
     return { ok:true, cfg: directorCfg };
   },
   _logHist(role, text) {
-    const h = document.getElementById('hist');
-    if (!h) return;
-    h.classList.add('on');
-    const div = document.createElement('div');
-    div.className = role === 'user' ? 'u' : 'a';
-    div.textContent = (role === 'user' ? '› ' : '◆ ') + text;
-    h.appendChild(div);
-    while (h.children.length > 30) h.removeChild(h.firstChild);
-    h.scrollTop = h.scrollHeight;
+    // Native Compose UI handles chat display. Just forward to console + bridge.
+    try { console.log('[' + role + ']', text); } catch(e) {}
+    try { window.MikuBridge && window.MikuBridge.onError && false; } catch(e) {}
   },
   startDirectorLuna(userCmd) {
     // Preset: Luna-Proxy локально, самая быстрая Qwen без thinking
@@ -1223,8 +1196,8 @@ window.Miku = {
 
 loadVrm('../vrm/miku.vrm');
 
-// ── Cmd bar: text input → director / slash commands ───────────────────
-(function setupCmdBar(){
+// ── Cmd bar disabled in app build (Compose UI handles input) ──────────
+if (false) (function setupCmdBar(){
   const input = document.getElementById('cmd');
   const send  = document.getElementById('send');
   if (!input || !send) return;
