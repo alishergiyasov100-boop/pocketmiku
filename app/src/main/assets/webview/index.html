@@ -302,7 +302,7 @@ function applyCharPose() {
   if (!currentVrm) return;
   currentVrm.scene.position.x = charState.pos.x;
   currentVrm.scene.position.z = charState.pos.z;
-  currentVrm.scene.rotation.y = charState.facing;
+  currentVrm.scene.rotation.y = (charState.baseFacingY || 0) + charState.facing;
   // walk-to interpolation
   if (charState.target) {
     const dx = charState.target.x - charState.pos.x;
@@ -402,19 +402,58 @@ function applyMomaskFrame(frame) {
 }
 
 function tickMomaskPlayback() {
-  if (!momaskPlayback) return;
+  if (!momaskPlayback || !skelGroup) return;
   const { joints, fps, T, t0 } = momaskPlayback;
   const elapsed = (performance.now() - t0) / 1000;
   const idx = Math.floor(elapsed * fps);
-  if (idx >= T) { momaskPlayback = null; if (clipBank['Idle']) playGesture('Idle'); return; }
-  applyMomaskFrame(joints[idx]);
+  if (idx >= T) { momaskPlayback = null; return; }
+  const f = joints[idx];
+  // Update spheres
+  for (let i=0; i<22 && i<f.length; i++){
+    skelJoints[i].position.set(f[i][0], f[i][1], f[i][2]);
+  }
+  // Update lines
+  for (const b of skelBones){
+    const c = f[b.child], p = f[b.parent];
+    if (!c || !p) continue;
+    const pts = [
+      new THREE.Vector3(p[0], p[1], p[2]),
+      new THREE.Vector3(c[0], c[1], c[2]),
+    ];
+    b.line.geometry.setFromPoints(pts);
+  }
+}
+
+// ── MoMask skeleton viz: stick figure that follows joints ─────────────
+// 22-joint SMPL parent topology
+const SKEL_PARENTS = [-1, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 12, 13, 14, 16, 17, 18, 19];
+let skelGroup = null;
+let skelJoints = [];
+let skelBones = [];
+function ensureSkeletonViz() {
+  if (skelGroup) return;
+  skelGroup = new THREE.Group();
+  scene.add(skelGroup);
+  // place skeleton beside Mura
+  skelGroup.position.set(1.6, 0, -0.4);
+  const jointMat = new THREE.MeshBasicMaterial({ color:0x66e6ff });
+  const boneMat  = new THREE.LineBasicMaterial({ color:0xff66cc, linewidth:2 });
+  for (let i=0; i<22; i++){
+    const s = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 8), jointMat);
+    skelGroup.add(s); skelJoints.push(s);
+  }
+  for (let i=1; i<22; i++){
+    const g = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,0),
+    ]);
+    const ln = new THREE.Line(g, boneMat);
+    skelGroup.add(ln); skelBones.push({ line:ln, child:i, parent:SKEL_PARENTS[i] });
+  }
 }
 
 function playMomaskJoints(joints, fps=20) {
-  if (!Array.isArray(joints) || !joints.length || !currentVrm?.humanoid) return false;
-  ensureMomaskRest();
-  // Stop any existing VRMA gesture so we don't fight the bones
-  if (activeAction) { activeAction.stop(); activeAction = null; }
+  if (!Array.isArray(joints) || !joints.length) return false;
+  ensureSkeletonViz();
   momaskPlayback = { joints, fps, T: joints.length, t0: performance.now() };
   return true;
 }
@@ -739,6 +778,8 @@ async function loadVrm(url) {
     if (!isVrm1) {
       vrm.scene.rotation.y = Math.PI;
     }
+    // Сохраняем baseline facing — applyCharPose добавляет к нему, а не стирает
+    charState.baseFacingY = vrm.scene.rotation.y;
     scene.add(vrm.scene);
     currentVrm = vrm;
     mixer = new THREE.AnimationMixer(vrm.scene);
@@ -911,8 +952,9 @@ let frameCount = 0;
 let lastFpsT = performance.now();
 function tick() {
   const dt = clock.getDelta();
+  // VRM не двигаем bones (retarget кривой) — играем skeleton viz рядом
   if (momaskPlayback) tickMomaskPlayback();
-  else if (mixer) mixer.update(dt);
+  if (mixer) mixer.update(dt);
   if (currentVrm) currentVrm.update(dt);
   applyCharPose();
   stepPhysics(dt);
