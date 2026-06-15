@@ -476,6 +476,14 @@ function jvec(f, i) { return _vr.set(f[i][0], f[i][1], f[i][2]); }
 function applyMomaskFrameVRM(f) {
   if (!currentVrm?.humanoid || !restWorldQuats) return;
   const hum = currentVrm.humanoid;
+  // MoMask quirk: joint[0] is accumulated root translation (may be Y=2+),
+  // NOT the actual pelvis position. Use midpoint of lhip/rhip as real pelvis.
+  const mid = [
+    (f[1][0]+f[2][0])*0.5,
+    (f[1][1]+f[2][1])*0.5,
+    (f[1][2]+f[2][2])*0.5,
+  ];
+  f = f.slice(); f[0] = mid;
   for (const [bone, pIdx, cIdx, tA, tB] of VRM_BONES) {
     const node = hum.getNormalizedBoneNode(bone);
     if (!node) continue;
@@ -509,11 +517,10 @@ function applyMomaskFrameVRM(f) {
     if (node.parent) node.parent.getWorldQuaternion(_qp);
     else _qp.set(0,0,0,1);
     _qd.copy(_qp).invert().multiply(_qw);
-    node.quaternion.slerp(_qd, 0.7);
+    node.quaternion.copy(_qd);
   }
-  // Pelvis world position — keep X/Z at charState, Y from joint 0
-  const hips = hum.getNormalizedBoneNode('hips');
-  if (hips) hips.position.y = (f[0][1] - 0) + 0; // direct y from HML pelvis
+  // Pelvis Y position from HML (now midhips, ~0.86) → use as anchor, ignore offset
+  // Don't override hips position — let baseline VRM rest pose stand
 }
 
 function playMomaskJoints(joints, fps=20) {
