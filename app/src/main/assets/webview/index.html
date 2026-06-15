@@ -417,52 +417,59 @@ function tickMomaskPlayback() {
 //   16=lshoulder, 17=rshoulder, 18=lelbow, 19=relbow, 20=lwrist, 21=rwrist
 // Per bone: [vrmBone, parentJoint, childJoint, twistA, twistB] — Y axis = parent→child,
 // X axis from cross with (twistB - twistA).  End bones reuse parent's twist ref.
+// VRM bone, [HML parent joint, HML child joint]. End bones (hands/feet/head) skipped.
+// hips skipped — baseline VRM facing preserved.
 const VRM_BONES = [
-  // hips skipped — keep VRM baseline rotation так чтоб лицо смотрело в камеру.
-  // (Если потом захочется чтоб Mura поворачивалась всем корпусом — раскомментить.)
-  // ['hips',           0,  3,  1,  2],
-  ['spine',          3,  6,  16, 17],
-  ['chest',          6,  9,  16, 17],
-  ['upperChest',     9,  12, 16, 17],
-  ['neck',           12, 15, 16, 17],
-  ['head',           15, 15, 16, 17],   // end: align with neck
-  ['leftUpperArm',   16, 18, 17, 9],
-  ['leftLowerArm',   18, 20, 16, 9],
-  ['leftHand',       20, 20, 18, 16],   // end
-  ['rightUpperArm',  17, 19, 16, 9],
-  ['rightLowerArm',  19, 21, 17, 9],
-  ['rightHand',      21, 21, 19, 17],
-  ['leftUpperLeg',   1,  4,  2,  3],
-  ['leftLowerLeg',   4,  7,  1,  2],
-  ['leftFoot',       7,  10, 1,  2],
-  ['rightUpperLeg',  2,  5,  1,  3],
-  ['rightLowerLeg',  5,  8,  2,  1],
-  ['rightFoot',      8,  11, 2,  1],
+  ['spine',          3,  6],
+  ['chest',          6,  9],
+  ['upperChest',     9,  12],
+  ['neck',           12, 15],
+  ['leftUpperArm',   16, 18],
+  ['leftLowerArm',   18, 20],
+  ['rightUpperArm',  17, 19],
+  ['rightLowerArm',  19, 21],
+  ['leftUpperLeg',   1,  4],
+  ['leftLowerLeg',   4,  7],
+  ['leftFoot',       7,  10],
+  ['rightUpperLeg',  2,  5],
+  ['rightLowerLeg',  5,  8],
+  ['rightFoot',      8,  11],
 ];
 
-let restWorldQuats = null;   // rest world-space quaternion per VRM bone
-let parentRestInv  = null;   // inverse rest world quat of each bone's PARENT
-let pelvisRestY    = 0.95;
+// VRM bone → its next-in-chain bone (for capturing rest world direction)
+const VRM_CHILD_BONE = {
+  spine: 'chest', chest: 'upperChest', upperChest: 'neck', neck: 'head',
+  leftUpperArm: 'leftLowerArm', leftLowerArm: 'leftHand',
+  rightUpperArm: 'rightLowerArm', rightLowerArm: 'rightHand',
+  leftUpperLeg: 'leftLowerLeg', leftLowerLeg: 'leftFoot', leftFoot: 'leftToes',
+  rightUpperLeg: 'rightLowerLeg', rightLowerLeg: 'rightFoot', rightFoot: 'rightToes',
+};
+
+let restWorldQuats = null;   // VRM bone → rest world quaternion
+let restWorldDirs  = null;   // VRM bone → rest world direction along bone (to its child bone)
 
 function captureRestPose() {
   if (!currentVrm?.humanoid) return;
   restWorldQuats = {};
-  parentRestInv  = {};
+  restWorldDirs  = {};
+  const hum = currentVrm.humanoid;
+  const pw = new THREE.Vector3(), cw = new THREE.Vector3();
   const q = new THREE.Quaternion();
   for (const [bone] of VRM_BONES) {
-    const node = currentVrm.humanoid.getNormalizedBoneNode(bone);
+    const node = hum.getNormalizedBoneNode(bone);
     if (!node) continue;
     node.getWorldQuaternion(q);
     restWorldQuats[bone] = q.clone();
-    const pq = new THREE.Quaternion();
-    if (node.parent) node.parent.getWorldQuaternion(pq);
-    parentRestInv[bone] = pq.invert();
-  }
-  const hips = currentVrm.humanoid.getNormalizedBoneNode('hips');
-  if (hips) {
-    const wp = new THREE.Vector3();
-    hips.getWorldPosition(wp);
-    pelvisRestY = wp.y;
+    const childName = VRM_CHILD_BONE[bone];
+    if (childName) {
+      const childNode = hum.getNormalizedBoneNode(childName);
+      if (childNode) {
+        node.getWorldPosition(pw);
+        childNode.getWorldPosition(cw);
+        const d = cw.clone().sub(pw);
+        if (d.lengthSq() > 1e-8) restWorldDirs[bone] = d.normalize();
+      }
+    }
   }
 }
 
@@ -478,51 +485,29 @@ function jvec(f, i) { return _vr.set(f[i][0], f[i][1], f[i][2]); }
 function applyMomaskFrameVRM(f) {
   if (!currentVrm?.humanoid || !restWorldQuats) return;
   const hum = currentVrm.humanoid;
-  // MoMask quirk: joint[0] is accumulated root translation (may be Y=2+),
-  // NOT the actual pelvis position. Use midpoint of lhip/rhip as real pelvis.
-  const mid = [
-    (f[1][0]+f[2][0])*0.5,
-    (f[1][1]+f[2][1])*0.5,
-    (f[1][2]+f[2][2])*0.5,
-  ];
-  f = f.slice(); f[0] = mid;
-  for (const [bone, pIdx, cIdx, tA, tB] of VRM_BONES) {
+  // MoMask quirk: joint[0] is accumulated root translation, not real pelvis. Skip it.
+  for (const [bone, pIdx, cIdx] of VRM_BONES) {
     const node = hum.getNormalizedBoneNode(bone);
-    if (!node) continue;
-    // Y axis = parent → child direction (bone length axis)
+    if (!node || !node.parent) continue;
+    const restDir = restWorldDirs[bone];
+    const restQ   = restWorldQuats[bone];
+    if (!restDir || !restQ) continue;
+    // Target direction along bone in WORLD frame
     _vy.set(f[cIdx][0]-f[pIdx][0], f[cIdx][1]-f[pIdx][1], f[cIdx][2]-f[pIdx][2]);
-    if (_vy.lengthSq() < 1e-6) {
-      // End bone: reuse parent's rotation
-      node.quaternion.set(0,0,0,1);
-      continue;
-    }
+    if (_vy.lengthSq() < 1e-6) continue;
     _vy.normalize();
-    // Reference vector for twist plane
-    _vr.set(f[tB][0]-f[tA][0], f[tB][1]-f[tA][1], f[tB][2]-f[tA][2]);
-    // X axis perpendicular to Y, in plane of ref
-    _vx.crossVectors(_vy, _vr);
-    if (_vx.lengthSq() < 1e-6) {
-      // ref colinear with Y — pick a default
-      _vx.set(1,0,0);
-      if (Math.abs(_vy.dot(_vx)) > 0.95) _vx.set(0,0,1);
-      _vx.sub(_vy.clone().multiplyScalar(_vy.dot(_vx))).normalize();
-    } else _vx.normalize();
-    _vz.crossVectors(_vx, _vy).normalize();
-    // Build target world rotation from basis
-    _mtx.makeBasis(_vx, _vy, _vz);
-    _qw.setFromRotationMatrix(_mtx);
-    // local = parent.world.inverse() * world_target * rest_world.inverse() then re-apply rest local?
-    // Simpler: rotation delta from rest = _qw * restWorldQuats[bone].inverse()
-    // local delta applied to node = parentRestInv * delta_world * parentRest (conjugation), but
-    // since we want world(bone) = target, and base rest is captured, local rotation =
-    //   parent.world.inverse() * _qw
-    if (node.parent) node.parent.getWorldQuaternion(_qp);
-    else _qp.set(0,0,0,1);
+    // delta rotation in world: rotate restDir → targetDir
+    _qd.setFromUnitVectors(restDir, _vy);
+    // target bone world = delta * restWorldQuat
+    _qw.copy(_qd).multiply(restQ);
+    // local = parent.world.inverse() * target.world
+    node.parent.getWorldQuaternion(_qp);
     _qd.copy(_qp).invert().multiply(_qw);
     node.quaternion.copy(_qd);
+    // Ensure descendants read fresh parent world on next iteration
+    node.updateMatrixWorld(true);
   }
-  // Foot anchor: после ротаций ставим scene.position.y так, чтобы нижняя нога касалась пола.
-  // Иначе она парит на 0.5-1м над полом из-за HML root motion (joint[0] inflation).
+  // Foot anchor — lowest foot to Y=0
   const lFoot = hum.getNormalizedBoneNode('leftFoot');
   const rFoot = hum.getNormalizedBoneNode('rightFoot');
   if (lFoot && rFoot && currentVrm.scene) {
@@ -530,7 +515,7 @@ function applyMomaskFrameVRM(f) {
     const wpl = new THREE.Vector3(), wpr = new THREE.Vector3();
     lFoot.getWorldPosition(wpl); rFoot.getWorldPosition(wpr);
     const minFootY = Math.min(wpl.y, wpr.y);
-    currentVrm.scene.position.y -= minFootY; // bring foot to Y=0
+    if (Math.abs(minFootY) > 0.005) currentVrm.scene.position.y -= minFootY;
   }
 }
 
