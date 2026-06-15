@@ -14,12 +14,33 @@
          z-index: 9999; white-space: pre-wrap; word-break: break-all; }
   #stat { position: fixed; right: 8px; top: 60px; color: #36DBC0; font: 11px/1.3 monospace;
           background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 4px; z-index: 9999; }
+  #cmdbar { position: fixed; left: 8px; right: 8px; bottom: 12px; z-index: 9999;
+            display: flex; gap: 6px; }
+  #cmd { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 8px;
+         border: 1px solid #ff66cc88; background: rgba(20,8,30,0.85); color: #fff;
+         font: 14px/1.2 sans-serif; outline: none; }
+  #cmd:focus { border-color: #ff66cc; }
+  #send { padding: 10px 14px; border-radius: 8px; border: 0; cursor: pointer;
+          background: #ff66cc; color: #fff; font: bold 14px/1 sans-serif; }
+  #send:active { background: #cc4499; }
+  #hist { position: fixed; left: 8px; right: 8px; bottom: 64px; z-index: 9998;
+          max-height: 30vh; overflow-y: auto; color: #f0e6ff; font: 11px/1.4 monospace;
+          background: rgba(0,0,0,0.55); padding: 6px 10px; border-radius: 6px;
+          display: none; }
+  #hist.on { display: block; }
+  #hist .u { color: #66e6ff; }
+  #hist .a { color: #ff99dd; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="err" style="display:none"></div>
 <div id="stat">booting…</div>
+<div id="hist"></div>
+<div id="cmdbar">
+  <input id="cmd" type="text" placeholder="скажи Муре что делать… (или /help)" autocomplete="off" />
+  <button id="send">▶</button>
+</div>
 
 <script src="miku-bundle.min.js"></script>
 <script>
@@ -51,8 +72,9 @@ renderer.setClearColor(0x0A0612, 1);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.05, 100);
-camera.position.set(0, 1.35, 1.6);
-camera.lookAt(0, 1.35, 0);
+// 2D-ish front view from where the window is on the back wall
+camera.position.set(0, 1.0, 5.2);
+camera.lookAt(0, 0.9, -2.0);
 
 // ── Простая "комната" — пол + контекст-объекты ─────────────────────────
 const floorMat = new THREE.MeshStandardMaterial({ color: 0x2a1840, roughness: 0.9, metalness: 0.1 });
@@ -61,15 +83,614 @@ floor.rotation.x = -Math.PI / 2;
 floor.position.y = 0;
 scene.add(floor);
 
-// Контекст-объекты вокруг Mura (visual props для autonomous behavior)
-const propMat = new THREE.MeshStandardMaterial({ color: 0xff66cc, emissive: 0x331122, roughness: 0.5 });
-const box = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), propMat);
-box.position.set(1.0, 0.2, -0.5);
-scene.add(box);
+// ── Room bounds (invisible walls + grid markers) ──────────────────────
+const BOUNDS = { xMin:-2.0, xMax:2.0, zMin:-2.0, zMax:2.0 };
 
-const ball = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 16), new THREE.MeshStandardMaterial({ color: 0x66e6ff, emissive: 0x113344 }));
-ball.position.set(-1.0, 0.25, -0.3);
-scene.add(ball);
+// ── Detailed bedroom interior ─────────────────────────────────────────
+const room = new THREE.Group(); scene.add(room);
+const M = (color, opts={}) => new THREE.MeshStandardMaterial({ color, roughness:0.7, metalness:0.05, ...opts });
+const addBox = (parent, w,h,d, x,y,z, mat, rotY=0) => {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat);
+  m.position.set(x,y,z); m.rotation.y = rotY;
+  parent.add(m); return m;
+};
+const addCyl = (parent, r,h, x,y,z, mat) => {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r,r,h,16), mat);
+  m.position.set(x,y,z); parent.add(m); return m;
+};
+
+// 4 walls (back/left/right) — front wall omitted for camera view
+const WALL_H = 2.5;
+const wallMat = M(0xf2c7e0, {roughness:0.85});       // soft pink wallpaper
+addBox(room, 4.0, WALL_H, 0.05,  0, WALL_H/2, -2.0, wallMat);  // back
+addBox(room, 0.05, WALL_H, 4.0, -2.0, WALL_H/2, 0, wallMat);  // left
+addBox(room, 0.05, WALL_H, 4.0,  2.0, WALL_H/2, 0, wallMat);  // right
+
+// Floor — wood plank
+const woodMat = M(0x6b3a1c, {roughness:0.9});
+const floorWood = new THREE.Mesh(new THREE.PlaneGeometry(4,4), woodMat);
+floorWood.rotation.x = -Math.PI/2; floorWood.position.y = 0.001;
+room.add(floorWood);
+
+// Pink rug
+const rugMat = M(0xff66cc, {roughness:0.95, emissive:0x331122, emissiveIntensity:0.15});
+const rug = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.2), rugMat);
+rug.rotation.x = -Math.PI/2; rug.position.set(0, 0.005, 0.3);
+room.add(rug);
+
+// Glowing window on back wall
+const winFrameMat = M(0xffffff);
+addBox(room, 1.3, 1.0, 0.06, -0.7, 1.3, -1.96, winFrameMat);
+const winGlowMat = new THREE.MeshBasicMaterial({ color:0xfff5cc });
+const winGlow = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.9), winGlowMat);
+winGlow.position.set(-0.7, 1.3, -1.92);
+room.add(winGlow);
+// window cross frame
+addBox(room, 1.2, 0.04, 0.01, -0.7, 1.3, -1.91, winFrameMat);
+addBox(room, 0.04, 0.9, 0.01, -0.7, 1.3, -1.91, winFrameMat);
+
+// Wall poster (right wall)
+const posterMat = new THREE.MeshBasicMaterial({ color:0x66e6ff });
+const poster = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.95), posterMat);
+poster.rotation.y = -Math.PI/2; poster.position.set(1.97, 1.5, -0.8);
+room.add(poster);
+
+// Bed (mattress + frame + pillow + blanket) — back-right corner
+const bedFrameMat = M(0x4a2a1c);
+const bedFrame = addBox(room, 1.6, 0.3, 0.9,  1.1, 0.15, -1.4, bedFrameMat);
+const mattressMat = M(0xfff0f5);
+addBox(room, 1.55, 0.15, 0.85,  1.1, 0.38, -1.4, mattressMat);
+const blanketMat = M(0xff8fc8, {emissive:0x441833, emissiveIntensity:0.2});
+addBox(room, 1.55, 0.06, 0.6,  1.1, 0.49, -1.25, blanketMat);
+const pillowMat = M(0xffffff);
+addBox(room, 0.35, 0.1, 0.5,  1.5, 0.51, -1.55, pillowMat);
+addBox(room, 0.35, 0.1, 0.5,  0.7, 0.51, -1.55, pillowMat);
+
+// Desk + chair — left wall
+const deskTopMat = M(0x8b5a2b);
+addBox(room, 1.2, 0.05, 0.6, -1.3, 0.75, -1.6, deskTopMat);
+// desk legs
+[[-1.85,-1.85],[-0.75,-1.85],[-1.85,-1.35],[-0.75,-1.35]].forEach(([x,z])=>{
+  addBox(room, 0.05, 0.75, 0.05, x, 0.375, z, deskTopMat);
+});
+// Lamp on desk
+const lampPostMat = M(0x222222);
+addCyl(room, 0.025, 0.4, -1.7, 0.95, -1.6, lampPostMat);
+const lampShade = new THREE.Mesh(
+  new THREE.ConeGeometry(0.12, 0.18, 12),
+  new THREE.MeshStandardMaterial({color:0xffe066, emissive:0xffaa33, emissiveIntensity:0.8})
+);
+lampShade.position.set(-1.7, 1.15, -1.6); lampShade.rotation.x = Math.PI;
+room.add(lampShade);
+const lampLight = new THREE.PointLight(0xffd470, 1.2, 3.5, 1.5);
+lampLight.position.set(-1.7, 1.1, -1.6); room.add(lampLight);
+// Book on desk
+addBox(room, 0.22, 0.04, 0.16, -1.2, 0.79, -1.6, M(0x66e6ff));
+addBox(room, 0.22, 0.04, 0.16, -1.2, 0.83, -1.6, M(0xff66cc));
+// Mug
+addCyl(room, 0.05, 0.09, -0.95, 0.795, -1.55, M(0xffffff, {emissive:0xff66cc, emissiveIntensity:0.3}));
+
+// Chair
+const chairMat = M(0xc77a3f);
+addBox(room, 0.5, 0.05, 0.5, -1.3, 0.45, -1.0, chairMat);
+addBox(room, 0.5, 0.6, 0.05, -1.3, 0.75, -1.2, chairMat);
+[[-1.5,-0.8],[-1.1,-0.8],[-1.5,-1.2],[-1.1,-1.2]].forEach(([x,z])=>{
+  addBox(room, 0.04, 0.45, 0.04, x, 0.225, z, chairMat);
+});
+
+// Bookshelf — right wall
+const shelfMat = M(0x6b3a1c);
+addBox(room, 0.8, 1.6, 0.3,  1.55, 0.8, 0.5, shelfMat);
+// shelf interior planes (lighter)
+for (let i=0; i<3; i++){
+  addBox(room, 0.75, 0.02, 0.28,  1.55, 0.4 + i*0.45, 0.5, M(0x4a2a1c));
+}
+// Books — varied colors
+const bookColors = [0xff66cc, 0x66e6ff, 0xffe066, 0xa66cff, 0xff9966, 0x66ffa0];
+for (let i=0; i<3; i++){
+  for (let j=0; j<5; j++){
+    const bw = 0.06 + Math.random()*0.04;
+    const bh = 0.25 + Math.random()*0.08;
+    addBox(room, bw, bh, 0.18,
+      1.55 + (j-2)*0.10, 0.42 + i*0.45 + bh/2, 0.5,
+      M(bookColors[(i*5+j) % bookColors.length], {roughness:0.6}));
+  }
+}
+
+// Plant — front-right corner
+const potMat = M(0x8b5a2b);
+addCyl(room, 0.18, 0.25, 1.7, 0.125, 1.6, potMat);
+// leaves (cones)
+for (let i=0; i<5; i++){
+  const ang = (i / 5) * Math.PI * 2;
+  const leaf = new THREE.Mesh(
+    new THREE.ConeGeometry(0.08, 0.4, 6),
+    M(0x4caf50, {emissive:0x113311, emissiveIntensity:0.1})
+  );
+  leaf.position.set(1.7 + Math.cos(ang)*0.06, 0.45, 1.6 + Math.sin(ang)*0.06);
+  leaf.rotation.z = Math.cos(ang)*0.2; leaf.rotation.x = Math.sin(ang)*0.2;
+  room.add(leaf);
+}
+
+// Toy chest — front-left corner
+const chestMat = M(0xa66cff);
+addBox(room, 0.6, 0.3, 0.4, -1.5, 0.15, 1.5, chestMat);
+addBox(room, 0.6, 0.05, 0.4, -1.5, 0.325, 1.5, M(0xc89aff));
+
+// ── Toys (pickable objects) — detailed ────────────────────────────────
+const toys = [];
+
+// Teddy bear (toy_pink) — body + head + ears + eyes
+function makeTeddy(x,z){
+  const g = new THREE.Group();
+  const body = M(0xff66cc, {emissive:0x331122, emissiveIntensity:0.15, roughness:0.85});
+  const dark = M(0x222222);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.10, 12, 12), body);
+  head.position.y = 0.20; g.add(head);
+  const torso = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 12), body);
+  torso.position.y = 0.10; torso.scale.set(1, 1.2, 1); g.add(torso);
+  // ears
+  const earL = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), body);
+  earL.position.set(-0.07, 0.27, 0); g.add(earL);
+  const earR = earL.clone(); earR.position.x = 0.07; g.add(earR);
+  // eyes
+  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.013, 8, 8), dark);
+  eyeL.position.set(-0.035, 0.22, 0.09); g.add(eyeL);
+  const eyeR = eyeL.clone(); eyeR.position.x = 0.035; g.add(eyeR);
+  // limbs
+  [-1,1].forEach(s=>{
+    const arm = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), body);
+    arm.position.set(s*0.12, 0.10, 0); g.add(arm);
+    const leg = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), body);
+    leg.position.set(s*0.06, 0.0, 0); g.add(leg);
+  });
+  g.position.set(x, 0, z);
+  return g;
+}
+const teddy = makeTeddy(1.0, -0.5);
+room.add(teddy);
+toys.push({ id:'toy_pink', mesh:teddy, held:false });
+
+// Ball (toy_cyan) — glossy sphere
+const ball = new THREE.Mesh(
+  new THREE.SphereGeometry(0.15, 20, 20),
+  M(0x66e6ff, {emissive:0x113344, emissiveIntensity:0.3, roughness:0.3, metalness:0.4})
+);
+ball.position.set(-1.0, 0.15, -0.3);
+room.add(ball);
+toys.push({ id:'toy_cyan', mesh:ball, held:false });
+
+// Stacked blocks (toy_yellow) — 3 cubes
+function makeBlocks(x,z){
+  const g = new THREE.Group();
+  const cols = [0xffe066, 0xff66cc, 0x66e6ff];
+  cols.forEach((c, i) => {
+    const cube = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.18),
+      M(c, {emissive:c, emissiveIntensity:0.1}));
+    cube.position.y = 0.09 + i*0.18;
+    g.add(cube);
+  });
+  g.position.set(x, 0, z);
+  return g;
+}
+const blocks = makeBlocks(0.4, 1.0);
+room.add(blocks);
+toys.push({ id:'toy_yellow', mesh:blocks, held:false });
+
+// Physics state for each toy
+toys.forEach(t => { t.vel = new THREE.Vector3(0,0,0); t.onGround = true; });
+
+// ── Simple physics (gravity + ground bounce + wall clamp) ────────────
+function stepPhysics(dt) {
+  const G = -9.81;
+  for (const t of toys) {
+    if (t.held) continue;
+    if (!t.onGround) t.vel.y += G * dt;
+    else {
+      t.vel.x *= Math.pow(0.04, dt);
+      t.vel.z *= Math.pow(0.04, dt);
+      if (Math.abs(t.vel.x) < 0.01) t.vel.x = 0;
+      if (Math.abs(t.vel.z) < 0.01) t.vel.z = 0;
+    }
+    const p = t.mesh.position;
+    p.x += t.vel.x * dt;
+    p.y += t.vel.y * dt;
+    p.z += t.vel.z * dt;
+    // Toy chest landing zone — soft floor at y=0.15
+    if (p.y < 0.15) {
+      p.y = 0.15;
+      if (t.vel.y < -0.4) { t.vel.y *= -0.35; t.onGround = false; }
+      else { t.vel.y = 0; t.onGround = true; }
+    } else { t.onGround = false; }
+    // Walls clamp (with energy loss)
+    if (p.x < BOUNDS.xMin+0.15) { p.x = BOUNDS.xMin+0.15; t.vel.x *= -0.4; }
+    if (p.x > BOUNDS.xMax-0.15) { p.x = BOUNDS.xMax-0.15; t.vel.x *= -0.4; }
+    if (p.z < BOUNDS.zMin+0.15) { p.z = BOUNDS.zMin+0.15; t.vel.z *= -0.4; }
+    if (p.z > BOUNDS.zMax-0.15) { p.z = BOUNDS.zMax-0.15; t.vel.z *= -0.4; }
+  }
+}
+
+// ── Character locomotion state (position separate from motion clip) ───
+const charState = {
+  pos: new THREE.Vector3(0, 0, 0),
+  facing: 0,                    // radians, 0 = +Z
+  target: null,                  // {x,z} when walking
+  holding: null,                  // toy.id when picked up
+};
+
+// Apply charState to VRM each frame
+function applyCharPose() {
+  if (!currentVrm) return;
+  currentVrm.scene.position.x = charState.pos.x;
+  currentVrm.scene.position.z = charState.pos.z;
+  currentVrm.scene.rotation.y = charState.facing;
+  // walk-to interpolation
+  if (charState.target) {
+    const dx = charState.target.x - charState.pos.x;
+    const dz = charState.target.z - charState.pos.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 0.05) { charState.target = null; onArrived(); }
+    else {
+      const speed = 0.018;
+      charState.pos.x += (dx/dist) * speed;
+      charState.pos.z += (dz/dist) * speed;
+      charState.facing = Math.atan2(dx, dz);
+    }
+    // clamp
+    charState.pos.x = Math.max(BOUNDS.xMin+0.2, Math.min(BOUNDS.xMax-0.2, charState.pos.x));
+    charState.pos.z = Math.max(BOUNDS.zMin+0.2, Math.min(BOUNDS.zMax-0.2, charState.pos.z));
+  }
+  // held toy follows hand
+  if (charState.holding) {
+    const toy = toys.find(t => t.id === charState.holding);
+    if (toy && currentVrm.humanoid) {
+      const hand = currentVrm.humanoid.getNormalizedBoneNode('rightHand');
+      if (hand) {
+        const wp = new THREE.Vector3();
+        hand.getWorldPosition(wp);
+        toy.mesh.position.copy(wp);
+      }
+    }
+  }
+}
+
+// ── MoMask joint-to-VRM retargeting ───────────────────────────────────
+// HumanML3D 22-joint SMPL topology → VRM normalized bones.
+// Each entry: [parentJointIdx, childJointIdx, vrmBoneName]
+const HML_TO_VRM = [
+  [0, 3,  'spine'],
+  [3, 6,  'chest'],
+  [6, 9,  'upperChest'],
+  [9, 12, 'neck'],
+  [12,15, 'head'],
+  [9, 16, 'leftUpperArm'],
+  [16,18, 'leftLowerArm'],
+  [18,20, 'leftHand'],
+  [9, 17, 'rightUpperArm'],
+  [17,19, 'rightLowerArm'],
+  [19,21, 'rightHand'],
+  [0, 1,  'leftUpperLeg'],
+  [1, 4,  'leftLowerLeg'],
+  [4, 7,  'leftFoot'],
+  [7, 10, 'leftToes'],
+  [0, 2,  'rightUpperLeg'],
+  [2, 5,  'rightLowerLeg'],
+  [5, 8,  'rightFoot'],
+  [8, 11, 'rightToes'],
+];
+
+let momaskRestDirs = null;
+let momaskPlayback = null;     // { joints:Array, fps, T, t0 }
+
+function ensureMomaskRest() {
+  if (momaskRestDirs || !currentVrm?.humanoid) return;
+  momaskRestDirs = {};
+  const pw = new THREE.Vector3(), cw = new THREE.Vector3();
+  for (const [, , bone] of HML_TO_VRM) {
+    const node = currentVrm.humanoid.getNormalizedBoneNode(bone);
+    if (!node || !node.children || node.children.length === 0) continue;
+    node.getWorldPosition(pw);
+    node.children[0].getWorldPosition(cw);
+    momaskRestDirs[bone] = cw.clone().sub(pw).normalize();
+  }
+}
+
+const _tmpDir = new THREE.Vector3();
+const _tmpQ = new THREE.Quaternion();
+const _tmpQpar = new THREE.Quaternion();
+const _tmpQpInv = new THREE.Quaternion();
+const _tmpQworld = new THREE.Quaternion();
+
+function applyMomaskFrame(frame) {
+  if (!currentVrm?.humanoid) return;
+  for (const [pIdx, cIdx, bone] of HML_TO_VRM) {
+    const node = currentVrm.humanoid.getNormalizedBoneNode(bone);
+    if (!node || !node.parent) continue;
+    const rest = momaskRestDirs?.[bone];
+    if (!rest) continue;
+    const pj = frame[pIdx], cj = frame[cIdx];
+    _tmpDir.set(cj[0]-pj[0], cj[1]-pj[1], cj[2]-pj[2]);
+    if (_tmpDir.lengthSq() < 1e-6) continue;
+    _tmpDir.normalize();
+    // World-space rotation: align rest direction → target direction
+    _tmpQworld.setFromUnitVectors(rest, _tmpDir);
+    // Convert to local: bone.local = parent.world.inv * worldTarget
+    node.parent.getWorldQuaternion(_tmpQpar);
+    _tmpQpInv.copy(_tmpQpar).invert();
+    _tmpQ.copy(_tmpQpInv).multiply(_tmpQworld);
+    node.quaternion.slerp(_tmpQ, 0.6);
+  }
+}
+
+function tickMomaskPlayback() {
+  if (!momaskPlayback) return;
+  const { joints, fps, T, t0 } = momaskPlayback;
+  const elapsed = (performance.now() - t0) / 1000;
+  const idx = Math.floor(elapsed * fps);
+  if (idx >= T) { momaskPlayback = null; if (clipBank['Idle']) playGesture('Idle'); return; }
+  applyMomaskFrame(joints[idx]);
+}
+
+function playMomaskJoints(joints, fps=20) {
+  if (!Array.isArray(joints) || !joints.length || !currentVrm?.humanoid) return false;
+  ensureMomaskRest();
+  // Stop any existing VRMA gesture so we don't fight the bones
+  if (activeAction) { activeAction.stop(); activeAction = null; }
+  momaskPlayback = { joints, fps, T: joints.length, t0: performance.now() };
+  return true;
+}
+
+// ── MoMask client (cloud body: text → motion) ─────────────────────────
+const MOMASK_URL_REGISTRY = 'https://huggingface.co/datasets/KorvusTheExplorer/pocketwaifu-tunnel/raw/main/url.txt';
+let momaskUrl = null;
+async function refreshMomaskUrl() {
+  try {
+    const r = await fetch(MOMASK_URL_REGISTRY + '?t=' + Date.now());
+    if (r.ok) {
+      momaskUrl = (await r.text()).trim();
+      setStat('momask: ' + momaskUrl.slice(8, 28));
+    }
+  } catch(e) { setStat('momask url fail'); }
+}
+refreshMomaskUrl();
+setInterval(refreshMomaskUrl, 60_000);
+
+async function callMomask(text, lengthFrames=80) {
+  if (!momaskUrl) await refreshMomaskUrl();
+  if (!momaskUrl) throw new Error('no momask url');
+  const t0 = performance.now();
+  const r = await fetch(momaskUrl + '/generate', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ text, length: lengthFrames }),
+  });
+  const j = await r.json();
+  j._fetch_ms = Math.round(performance.now() - t0);
+  return j;
+}
+
+// ── Locomotion: walk_to ALWAYS via MoMask, no VRMA presets ────────────
+async function walkTo(x, z) {
+  charState.target = {
+    x: Math.max(BOUNDS.xMin+0.2, Math.min(BOUNDS.xMax-0.2, x)),
+    z: Math.max(BOUNDS.zMin+0.2, Math.min(BOUNDS.zMax-0.2, z)),
+  };
+  try {
+    const dist = Math.hypot(charState.target.x - charState.pos.x,
+                            charState.target.z - charState.pos.z);
+    const frames = Math.max(60, Math.min(180, Math.round(dist * 60)));
+    const m = await callMomask('a person walks forward steadily', frames);
+    playMomaskJoints(m.data, 20);
+  } catch(e) { setStat('walk momask fail: ' + e); }
+  return { ok:true, target: charState.target };
+}
+
+function onArrived() {
+  // No preset Idle — just stop MoMask playback so VRM holds last pose
+  momaskPlayback = null;
+}
+
+// ── Qwen director: brain that drives MoMask body + tool calls ─────────
+const TOOL_SCHEMA = `You direct a 3D anime character "Mura" in a bedroom. Output STRICT JSON ONLY — no prose, no markdown fences. Just one JSON object.
+Schema:
+{ "say": "optional short line in user's language",
+  "tool": "walk_to" | "pick_up" | "drop" | "motion" | "wait",
+  "args": { ... } }
+Tools:
+- walk_to {x, z}                   // floats in -1.8..+1.8
+- pick_up {toy_id: "toy_pink"|"toy_cyan"|"toy_yellow"}
+- drop {x, z}
+- motion {text: "<english prompt>", length?: 80}   // free-form prompt sent to a text-to-motion AI; describes body action only
+- wait {seconds: number}
+Rules:
+- ALWAYS return a JSON object. Never reply in plain prose.
+- The "motion" tool's text MUST be an english sentence describing a body action ("a person waves their hand", "a person spins around").
+- Use walk_to/pick_up/drop to do tasks; use motion for non-locomotion gestures.`;
+
+let directorTimer = null;
+let directorCfg = null;
+let directorHistory = [];
+
+async function directorTick() {
+  if (!directorCfg) return;
+  try {
+    const state = window.PocketWaifu.getState();
+    const sys = TOOL_SCHEMA +
+                '\nRules: stay in bounds. Complete user request step by step. Be playful but brief.';
+    const userTurn = `STATE=${JSON.stringify(state)}
+LAST_RESULT=${directorHistory.slice(-1)[0]?.result || 'idle'}
+USER_CMD=${directorCfg.userCmd || 'none — explore the room naturally'}`;
+    const body = {
+      model: directorCfg.model || 'qwen3-max',
+      messages: [
+        { role:'system', content: sys },
+        ...directorHistory.slice(-6).map(h => ({ role:'assistant', content: JSON.stringify(h.action) })),
+        { role:'user', content: userTurn },
+      ],
+      temperature: 0.7,
+      max_tokens: 300,
+    };
+    const headers = { 'Content-Type':'application/json' };
+    if (directorCfg.apiKey) headers['Authorization'] = 'Bearer ' + directorCfg.apiKey;
+    const r = await fetch(directorCfg.url, { method:'POST', headers, body: JSON.stringify(body) });
+    const j = await r.json();
+    const raw = j.choices?.[0]?.message?.content || '';
+    const m = raw.match(/\{[\s\S]*\}/);
+    let action;
+    if (!m) {
+      // Non-JSON reply — treat as plain say, no tool
+      action = { say: raw.trim().slice(0,200), tool: null };
+    } else {
+      try { action = JSON.parse(m[0]); }
+      catch (parseErr) {
+        action = { say: raw.trim().slice(0,200), tool: null,
+                   _parse_err: String(parseErr).slice(0,80) };
+      }
+    }
+    if (typeof action !== 'object' || action === null) action = { say: String(action) };
+    let result = null;
+    if (action.tool) {
+      try { result = await runAction(action); }
+      catch (runErr) {
+        result = { ok:false, err: String(runErr).slice(0,200) };
+        window.PocketWaifu._logHist('mura', '⚠ ' + result.err);
+      }
+    }
+    directorHistory.push({ action, result });
+    if (action.say) {
+      setStat('💭 ' + action.say.slice(0,40));
+      window.PocketWaifu._logHist('mura', action.say);
+    }
+    if (action.tool) {
+      window.PocketWaifu._logHist('mura',
+        '→ ' + action.tool + ' ' + JSON.stringify(action.args||{}));
+    }
+  } catch(e) {
+    const msg = (e && e.stack) ? e.stack.split('\n').slice(0,2).join(' | ') : String(e);
+    setStat('director: ' + msg.slice(0,60));
+    window.PocketWaifu._logHist('mura', '⚠ ' + msg.slice(0,300));
+  } finally {
+    directorTimer = setTimeout(directorTick, (directorCfg.intervalMs || 8000));
+  }
+}
+
+async function runAction(a) {
+  const tool = (a.tool || '').toLowerCase();
+  const args = a.args || {};
+  switch (tool) {
+    case 'walk_to':
+      return await walkTo(args.x ?? 0, args.z ?? 0);
+    case 'pick_up': {
+      const ok = window.PocketWaifu.pickUp(args.toy_id);
+      try {
+        const m = await callMomask('a person bends down and picks up an object from the floor', 80);
+        playMomaskJoints(m.data, 20);
+      } catch(e) {}
+      return { ok };
+    }
+    case 'drop': {
+      const ok = window.PocketWaifu.drop(args.x, args.z);
+      try {
+        const m = await callMomask('a person places an object down on the floor', 60);
+        playMomaskJoints(m.data, 20);
+      } catch(e) {}
+      return { ok };
+    }
+    case 'motion': {
+      const m = await callMomask(args.text || 'a person waves hand', args.length || 80);
+      const ok = playMomaskJoints(m.data, 20);
+      return { ok, ms: m._fetch_ms, took_sec: m.took_sec, joints: m.shape };
+    }
+    case 'wait':
+      return new Promise(r => setTimeout(() => r({ok:true}), (args.seconds||1)*1000));
+    default:
+      return { ok:false, err:'unknown tool ' + tool };
+  }
+}
+
+function pickVrmaForText(text) {
+  const t = text.toLowerCase();
+  const tries = [
+    ['walk','Walk'], ['wave','Greeting'], ['jump','Jump'], ['dance','DanceMorning'],
+    ['kneel','Squat'], ['sleep','Sleepy'], ['cheer','Cheer'], ['point','PointSoft'],
+    ['nod','Nod'], ['clap','Clapping'], ['spin','Spin'], ['relax','Relax'],
+    ['think','Thinking'], ['sad','Sad'], ['angry','Angry'], ['surpris','Surprised'],
+  ];
+  for (const [kw, clip] of tries) if (t.includes(kw) && clipBank[clip]) return clip;
+  return 'Idle';
+}
+
+// Public API exposed for outside (Kotlin / Qwen director / debug console)
+window.PocketWaifu = {
+  walkTo,
+  pickUp(toyId) {
+    const toy = toys.find(t => t.id === toyId);
+    if (!toy) return false;
+    toy.held = true;
+    charState.holding = toyId;
+    return true;
+  },
+  drop(x, z) {
+    if (!charState.holding) return false;
+    const toy = toys.find(t => t.id === charState.holding);
+    if (toy) {
+      toy.held = false;
+      // Release from above current pos for a small drop+settle
+      toy.mesh.position.set(x ?? charState.pos.x, 0.7, z ?? charState.pos.z);
+      toy.vel.set((Math.random()-0.5)*0.3, -0.5, (Math.random()-0.5)*0.3);
+      toy.onGround = false;
+    }
+    charState.holding = null;
+    return true;
+  },
+  getState() {
+    return {
+      bounds: BOUNDS,
+      char: { x:+charState.pos.x.toFixed(2), z:+charState.pos.z.toFixed(2),
+              facing:+charState.facing.toFixed(2), holding:charState.holding },
+      toys: toys.map(t => ({ id:t.id,
+        x:+t.mesh.position.x.toFixed(2), z:+t.mesh.position.z.toFixed(2), held:t.held })),
+    };
+  },
+  callMomask, refreshMomaskUrl,
+  startDirector(opts) {
+    // opts: { url, apiKey?, model?, intervalMs?, userCmd? }
+    directorCfg = { intervalMs: 8000, ...opts };
+    directorHistory = [];
+    if (directorTimer) clearTimeout(directorTimer);
+    directorTick();
+    return { ok:true, cfg: directorCfg };
+  },
+  _logHist(role, text) {
+    const h = document.getElementById('hist');
+    if (!h) return;
+    h.classList.add('on');
+    const div = document.createElement('div');
+    div.className = role === 'user' ? 'u' : 'a';
+    div.textContent = (role === 'user' ? '› ' : '◆ ') + text;
+    h.appendChild(div);
+    while (h.children.length > 30) h.removeChild(h.firstChild);
+    h.scrollTop = h.scrollHeight;
+  },
+  startDirectorLuna(userCmd) {
+    // Preset: Luna-Proxy локально, самая быстрая Qwen без thinking
+    return window.PocketWaifu.startDirector({
+      url:'http://127.0.0.1:8765/v1/chat/completions',
+      model:'qwen3-max-2026-01-23',
+      intervalMs: 6000,
+      userCmd: userCmd || '',
+    });
+  },
+  stopDirector() {
+    directorCfg = null;
+    if (directorTimer) clearTimeout(directorTimer);
+    directorTimer = null;
+    return { ok:true };
+  },
+  setUserCmd(cmd) {
+    if (directorCfg) directorCfg.userCmd = cmd;
+    return { ok:true };
+  },
+};
 
 // "Окно" — emissive plane сзади для атмосферы
 const windowMat = new THREE.MeshBasicMaterial({ color: 0xfff5cc });
@@ -154,12 +775,11 @@ async function loadVrm(url) {
       pickRandomIdle();
     });
 
-    const bbox = new THREE.Box3().setFromObject(vrm.scene);
-    const size = new THREE.Vector3();
-    bbox.getSize(size);
-    const headY = bbox.max.y - size.y * 0.1;
-    camera.position.set(0, headY, size.y * 1.0);
-    camera.lookAt(0, headY - size.y * 0.08, 0);
+    // 2D-ish front view: window/back-wall straight ahead, no diagonal
+    camera.fov = 45;
+    camera.updateProjectionMatrix();
+    camera.position.set(0, 1.0, 5.2);
+    camera.lookAt(0, 0.9, -2.0);
 
     setStat('loading clips…');
     await preloadClips();
@@ -316,8 +936,11 @@ let frameCount = 0;
 let lastFpsT = performance.now();
 function tick() {
   const dt = clock.getDelta();
-  if (mixer) mixer.update(dt);
+  if (momaskPlayback) tickMomaskPlayback();
+  else if (mixer) mixer.update(dt);
   if (currentVrm) currentVrm.update(dt);
+  applyCharPose();
+  stepPhysics(dt);
   renderer.render(scene, camera);
   frameCount++;
   const now = performance.now();
@@ -599,6 +1222,75 @@ window.Miku = {
 };
 
 loadVrm('../vrm/miku.vrm');
+
+// ── Cmd bar: text input → director / slash commands ───────────────────
+(function setupCmdBar(){
+  const input = document.getElementById('cmd');
+  const send  = document.getElementById('send');
+  if (!input || !send) return;
+  function exec(text){
+    text = text.trim(); if (!text) return;
+    window.PocketWaifu._logHist('user', text);
+    if (text.startsWith('/')) {
+      const [cmd, ...rest] = text.slice(1).split(/\s+/);
+      const arg = rest.join(' ');
+      switch (cmd) {
+        case 'help':
+          window.PocketWaifu._logHist('mura',
+            '/start <cmd>  /stop  /walk x z  /pick toy_pink|toy_cyan|toy_yellow  '+
+            '/drop x z  /gesture <name>  /motion <prompt>  /state');
+          break;
+        case 'start':
+          window.PocketWaifu.startDirectorLuna(arg);
+          window.PocketWaifu._logHist('mura', 'director on. user_cmd="'+arg+'"');
+          break;
+        case 'stop':
+          window.PocketWaifu.stopDirector();
+          window.PocketWaifu._logHist('mura', 'director off');
+          break;
+        case 'walk': {
+          const [x,z] = arg.split(/\s+/).map(parseFloat);
+          window.PocketWaifu.walkTo(x||0, z||0);
+          break;
+        }
+        case 'pick':
+          window.PocketWaifu.pickUp(arg);
+          break;
+        case 'drop': {
+          const [x,z] = arg.split(/\s+/).map(parseFloat);
+          window.PocketWaifu.drop(isNaN(x)?undefined:x, isNaN(z)?undefined:z);
+          break;
+        }
+        case 'gesture':
+          if (clipBank[arg]) playGesture(arg);
+          else window.PocketWaifu._logHist('mura', 'no clip: '+arg);
+          break;
+        case 'motion':
+          (async () => {
+            try {
+              const m = await window.PocketWaifu.callMomask(arg, 80);
+              const ok = playMomaskJoints(m.data, 20);
+              window.PocketWaifu._logHist('mura',
+                'motion '+(ok?'on':'fallback')+' shape='+JSON.stringify(m.shape)+' '+m.took_sec+'s');
+            } catch(e) { window.PocketWaifu._logHist('mura', 'motion err: '+e); }
+          })();
+          break;
+        case 'state':
+          window.PocketWaifu._logHist('mura', JSON.stringify(window.PocketWaifu.getState()));
+          break;
+        default:
+          window.PocketWaifu._logHist('mura', 'unknown: /'+cmd);
+      }
+    } else {
+      // Plain text → user_cmd for director (autostart if needed)
+      if (!directorCfg) window.PocketWaifu.startDirectorLuna(text);
+      else window.PocketWaifu.setUserCmd(text);
+    }
+    input.value = '';
+  }
+  send.addEventListener('click', () => exec(input.value));
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') exec(input.value); });
+})();
 </script>
 </body>
 </html>
