@@ -434,12 +434,12 @@ function ensureSkeletonViz() {
   if (skelGroup) return;
   skelGroup = new THREE.Group();
   scene.add(skelGroup);
-  // place skeleton beside Mura
-  skelGroup.position.set(1.6, 0, -0.4);
-  const jointMat = new THREE.MeshBasicMaterial({ color:0x66e6ff });
-  const boneMat  = new THREE.LineBasicMaterial({ color:0xff66cc, linewidth:2 });
+  // Place skeleton next to Mura, slightly elevated. HumanML3D pelvis ~y=0.9
+  skelGroup.position.set(-1.2, 0.05, 0.2);
+  const jointMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+  const boneMat  = new THREE.LineBasicMaterial({ color: 0xff33aa, linewidth: 4 });
   for (let i=0; i<22; i++){
-    const s = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 8), jointMat);
+    const s = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 10), jointMat);
     skelGroup.add(s); skelJoints.push(s);
   }
   for (let i=1; i<22; i++){
@@ -783,11 +783,7 @@ async function loadVrm(url) {
     scene.add(vrm.scene);
     currentVrm = vrm;
     mixer = new THREE.AnimationMixer(vrm.scene);
-    // Когда non-idle клип заканчивается — возврат в idle pool (рандомный)
-    mixer.addEventListener('finished', () => {
-      inGesture = false;
-      pickRandomIdle();
-    });
+    mixer.addEventListener('finished', () => { inGesture = false; });
 
     // 2D-ish front view: window/back-wall straight ahead, no diagonal
     camera.fov = 45;
@@ -874,14 +870,8 @@ async function preloadClips() {
     }
   }
   if (loaded === 0 && firstErr) showErr('VRMA: ' + firstErr);
-  // запускаем idle
-  if (clipBank[IDLE_CLIP] && mixer) {
-    pickRandomIdle();
-    setStat('ready (' + loaded + ' clips)');
-    scheduleIdleSwap();
-  } else {
-    showErr('no idle clip "' + IDLE_CLIP + '" or no mixer');
-  }
+  // No VRMA idle — MoMask brain handles everything now
+  setStat('ready (' + loaded + ' clips, MoMask brain)');
 }
 
 function pickRandomIdle() {
