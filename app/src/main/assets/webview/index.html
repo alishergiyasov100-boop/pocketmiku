@@ -418,7 +418,9 @@ function tickMomaskPlayback() {
 // Per bone: [vrmBone, parentJoint, childJoint, twistA, twistB] — Y axis = parent→child,
 // X axis from cross with (twistB - twistA).  End bones reuse parent's twist ref.
 const VRM_BONES = [
-  ['hips',           0,  3,  1,  2],
+  // hips skipped — keep VRM baseline rotation так чтоб лицо смотрело в камеру.
+  // (Если потом захочется чтоб Mura поворачивалась всем корпусом — раскомментить.)
+  // ['hips',           0,  3,  1,  2],
   ['spine',          3,  6,  16, 17],
   ['chest',          6,  9,  16, 17],
   ['upperChest',     9,  12, 16, 17],
@@ -519,8 +521,17 @@ function applyMomaskFrameVRM(f) {
     _qd.copy(_qp).invert().multiply(_qw);
     node.quaternion.copy(_qd);
   }
-  // Pelvis Y position from HML (now midhips, ~0.86) → use as anchor, ignore offset
-  // Don't override hips position — let baseline VRM rest pose stand
+  // Foot anchor: после ротаций ставим scene.position.y так, чтобы нижняя нога касалась пола.
+  // Иначе она парит на 0.5-1м над полом из-за HML root motion (joint[0] inflation).
+  const lFoot = hum.getNormalizedBoneNode('leftFoot');
+  const rFoot = hum.getNormalizedBoneNode('rightFoot');
+  if (lFoot && rFoot && currentVrm.scene) {
+    currentVrm.scene.updateMatrixWorld(true);
+    const wpl = new THREE.Vector3(), wpr = new THREE.Vector3();
+    lFoot.getWorldPosition(wpl); rFoot.getWorldPosition(wpr);
+    const minFootY = Math.min(wpl.y, wpr.y);
+    currentVrm.scene.position.y -= minFootY; // bring foot to Y=0
+  }
 }
 
 function playMomaskJoints(joints, fps=20) {
